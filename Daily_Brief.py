@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Daily Morning Brief
+Daily Morning Briefing — Parcion Private Wealth
 Fetches news via Google News RSS, synthesizes with Claude, sends via Gmail.
 """
 
