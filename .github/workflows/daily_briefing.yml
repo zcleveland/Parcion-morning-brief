@@ -1,39 +1,43 @@
-name: Daily Brief
+name: Parcion Morning Brief
 
 on:
+  # PDT (Mar–Nov): UTC-7 → 6am Pacific = 13:00 UTC
+  # PST (Nov–Mar): UTC-8 → 6am Pacific = 14:00 UTC
+  # Both crons run daily; the script checks the local hour and exits if wrong.
   schedule:
-    # ── Timing ────────────────────────────────────────────────────────────────
-    # GitHub Actions uses UTC. Pacific time offsets:
-    #   PDT (Mar–Nov, UTC-7):  6:00 AM PDT = 13:00 UTC  ← this file uses PDT
-    #   PST (Nov–Mar, UTC-8):  6:00 AM PST = 14:00 UTC
-    #
-    # This cron fires at 13:00 UTC = 6:00 AM during daylight saving time.
-    # In winter (Nov–Mar), it will fire at 5:00 AM Pacific instead.
-    # If you want strict 6:00 AM PST in winter, change 13 → 14 below.
-    # ──────────────────────────────────────────────────────────────────────────
-    - cron: '0 13 * * 1-5'   # Weekdays only (Mon–Fri)
-    # To run every day including weekends, change '1-5' to '*'
-
-  # Adds a "Run workflow" button in the GitHub Actions tab for manual testing
-  workflow_dispatch:
+    - cron: '0 13 * * 1-5'   # 6am PDT (summer)
+    - cron: '0 14 * * 1-5'   # 6am PST (winter)
+  workflow_dispatch:           # manual trigger for testing
 
 jobs:
-  send-briefing:
+  send-brief:
     runs-on: ubuntu-latest
+    env:
+      TZ: America/Los_Angeles
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.11
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Install required packages
-        run: pip install feedparser anthropic markdown
+      - name: Install dependencies
+        run: |
+          pip install feedparser anthropic markdown
 
-      - name: Run daily briefing script
+      - name: Confirm local hour is 6am Pacific
+        run: |
+          HOUR=$(TZ=America/Los_Angeles date +%-H)
+          echo "Current Pacific hour: $HOUR"
+          if [ "$HOUR" != "6" ]; then
+            echo "Not 6am Pacific — skipping. (Hour is $HOUR)"
+            exit 0
+          fi
+
+      - name: Run daily briefing
         env:
           GMAIL_ADDRESS:      ${{ secrets.GMAIL_ADDRESS }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
