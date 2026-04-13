@@ -15,6 +15,8 @@ from email.mime.text import MIMEText
 from datetime import datetime
 import anthropic
 
+for key in ['GMAIL_ADDRESS', 'GMAIL_APP_PASSWORD', 'WORK_EMAIL', 'ANTHROPIC_API_KEY']:
+    print(f"  {'✓' if os.environ.get(key) else '✗ MISSING'} {key}")
 
 # ─── Configuration (loaded from GitHub Secrets) ───────────────────────────────
 GMAIL_ADDRESS      = os.environ['GMAIL_ADDRESS']
