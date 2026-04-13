@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-Daily Morning Briefing — Parcion Private Wealth
-Fetches news via curated RSS feeds (with Google News fallback), synthesizes with Claude, sends via Gmail.
+The Parcion Morning Brief
+Daily intelligence briefing for Parcion Private Wealth advisors.
+Fetches news via curated RSS feeds, synthesizes with Claude, sends via Gmail.
 """
 
 import feedparser
@@ -16,97 +17,168 @@ from datetime import datetime
 import anthropic
 
 
-# ─── Configuration (loaded from GitHub Secrets) ───────────────────────────────
+# ─── Configuration ─────────────────────────────────────────────────────────────
 GMAIL_ADDRESS      = os.environ['GMAIL_ADDRESS']
 GMAIL_APP_PASSWORD = os.environ['GMAIL_APP_PASSWORD']
-WORK_EMAIL         = os.environ['WORK_EMAIL']
+WORK_EMAIL         = os.environ['WORK_EMAIL']   # single recipient during testing
 ANTHROPIC_API_KEY  = os.environ['ANTHROPIC_API_KEY']
 
 
 # ─── News Sources ──────────────────────────────────────────────────────────────
 DIRECT_FEEDS = {
-    "Markets & Investing": [
+
+    "notable_events": [
+        "https://feeds.reuters.com/reuters/topNews",
+        "https://feeds.bbci.co.uk/news/rss.xml",
+        "https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml",
+        "https://www.wsj.com/xml/rss/3_7085.xml",
+        "https://feeds.a.dj.com/rss/RSSMarketsMain.xml",
+    ],
+
+    "geopolitics": [
+        "https://warontherocks.com/feed/",
+        "https://www.foreignaffairs.com/rss.xml",
+        "https://www.cfr.org/rss/rss.xml",
+        "https://www.aei.org/feed/",
+        "https://geopoliticalfutures.com/feed/",
+    ],
+
+    "developed_markets": [
         "https://finance.yahoo.com/rss/topstories",
-        "https://seekingalpha.com/feed.xml",
+        "https://feeds.marketwatch.com/marketwatch/topstories/",
         "https://www.morningstar.com/rss/rss.xml",
         "https://rpc.cfainstitute.org/feed",
     ],
-    "Geopolitics & Macro": [
-        "https://warontherocks.com/feed/",
-        "https://www.geopoliticalmonitor.com/feed/",
-        "https://geopoliticalfutures.com/feed/",
-        "https://www.foreignaffairs.com/rss.xml",
-        "https://www.criticalthreats.org/feed",
-        "https://www.aei.org/feed/",
+
+    "international_markets": [
+        "https://feeds.reuters.com/reuters/businessNews",
+        "https://feeds.bbci.co.uk/news/business/rss.xml",
+        "https://www.cfr.org/rss/rss.xml",
     ],
-    "Estate & Tax Planning": [
+
+    "private_equity": [
+        "https://www.themiddlemarket.com/feed",
+        "https://axios.com/feeds/feed.rss",
+        "https://pitchbook.com/rss/news",
+    ],
+
+    "private_credit": [
+        "https://www.institutionalinvestor.com/rss/articles.aspx",
+        "https://feeds.reuters.com/reuters/companyNews",
+        "https://www.themiddlemarket.com/feed",
+    ],
+
+    "venture_capital": [
+        "https://techcrunch.com/category/venture/feed/",
+        "https://news.crunchbase.com/feed/",
+        "https://venturebeat.com/feed/",
+    ],
+
+    "real_estate_pe": [
+        "https://www.globest.com/feed/",
+        "https://therealdeal.com/feed/",
+        "https://www.connectcre.com/feed/",
+    ],
+
+    "commodities": [
+        "https://feeds.reuters.com/reuters/commoditiesNews",
+        "https://www.nasdaq.com/feed/rssoutbound?category=Commodities",
+    ],
+
+    "precious_metals": [
+        "https://www.kitco.com/rss/kitconews.rss",
+        "https://www.mining.com/feed/",
+    ],
+
+    "estate_tax": [
         "https://taxpolicycenter.org/taxvox/feed",
         "https://www.journalofaccountancy.com/rss/all-content.xml",
         "https://www.kiplinger.com/feed/rss",
         "https://www.irs.gov/rss-feeds/irs-news-releases",
     ],
-    "Selling a Business / M&A": [
+
+    "ma_business_sale": [
         "https://www.themiddlemarket.com/feed",
         "https://hbr.org/feed/topic/mergers-and-acquisitions",
         "https://pitchbook.com/rss/news",
+        "https://axios.com/feeds/feed.rss",
     ],
-    "Wealth Management & Family Office": [
+
+    "wealth_management": [
         "https://www.thinkadvisor.com/feed/",
         "https://www.wealthmanagement.com/rss.xml",
         "https://www.investmentnews.com/feed",
-        "https://www.advisorhub.com/feed/",
         "https://citywire.com/ria/rss",
+    ],
+
+    "legislation": [
+        "https://www.irs.gov/rss-feeds/irs-news-releases",
+        "https://www.sec.gov/rss/news/pressreleases.rss",
+        "https://www.govtrack.us/events/events.rss?feeds=misc:allvotes",
+        # State feeds
+        "https://app.leg.wa.gov/RSS/BillSummary.aspx",          # Washington
+        "https://leginfo.legislature.ca.gov/faces/billSearchClient.xhtml",  # CA (fallback to GNews)
     ],
 }
 
-# Google News fallback queries (used if direct feeds return < 3 articles)
 FALLBACK_QUERIES = {
-    "Markets & Investing":
-        "stock market investing Federal Reserve interest rates S&P 500",
-    "Geopolitics & Macro":
-        "geopolitics trade tariffs global economy inflation currency",
-    "Estate & Tax Planning":
-        "estate planning tax planning gift tax wealth transfer trust",
-    "Selling a Business / M&A":
-        "selling business M&A private equity acquisition EBITDA deal",
-    "Wealth Management & Family Office":
-        "wealth management family office ultra high net worth fiduciary",
+    "notable_events":      "top news today business economy",
+    "geopolitics":         "geopolitics trade policy global economy",
+    "developed_markets":   "stock market S&P 500 Federal Reserve interest rates",
+    "international_markets": "international markets global economy foreign currency",
+    "private_equity":      "private equity buyout deal LBO acquisition",
+    "private_credit":      "private credit direct lending leveraged loans",
+    "venture_capital":     "venture capital startup funding VC",
+    "real_estate_pe":      "commercial real estate private equity CRE",
+    "commodities":         "commodities oil natural gas futures",
+    "precious_metals":     "gold silver precious metals prices",
+    "estate_tax":          "estate planning tax planning gift tax wealth transfer",
+    "ma_business_sale":    "mergers acquisitions business sale M&A deal",
+    "wealth_management":   "wealth management RIA family office fiduciary",
+    "legislation":         "tax legislation IRS SEC regulation estate planning law",
 }
+
+LEGISLATION_STATE_QUERIES = [
+    "Texas tax legislation business owners 2025",
+    "Washington state tax legislation wealth 2025",
+    "Oregon tax legislation estate planning 2025",
+    "California tax legislation business owners 2025",
+    "Arizona tax legislation wealth planning 2025",
+    "federal tax legislation estate IRS 2025",
+]
 
 
 # ─── Helpers ───────────────────────────────────────────────────────────────────
 def strip_html(text):
-    """Remove HTML tags from a string."""
     return re.sub(r'<[^>]+>', '', text).strip()
 
 
 def fetch_from_feed(url, max_articles=5):
-    """Fetch articles from a direct RSS feed URL."""
     try:
         feed = feedparser.parse(url)
         articles = []
         for entry in feed.entries[:max_articles]:
             title   = strip_html(entry.get('title', 'No title'))
             summary = strip_html(entry.get('summary', entry.get('description', '')))
-            summary = summary[:450] if summary else 'No summary available.'
+            summary = summary[:400] if summary else 'No summary available.'
             link    = entry.get('link', '')
-            articles.append({"title": title, "summary": summary, "link": link})
+            if title and link:
+                articles.append({"title": title, "summary": summary, "link": link})
         return articles
     except Exception as e:
-        print(f"    ✗ Feed failed ({url}): {e}")
+        print(f"    ✗ Feed failed ({url[:60]}): {e}")
         return []
 
 
-def fetch_news_google(query, max_articles=6):
-    """Fallback: fetch from Google News RSS."""
+def fetch_news_google(query, max_articles=5):
     encoded = urllib.parse.quote(query)
     url = f"https://news.google.com/rss/search?q={encoded}&hl=en-US&gl=US&ceid=US:en"
     return fetch_from_feed(url, max_articles)
 
 
-# ─── Compile All Articles ──────────────────────────────────────────────────────
 def compile_articles():
     all_articles = {}
+
     for topic, feeds in DIRECT_FEEDS.items():
         print(f"  → {topic}")
         articles = []
@@ -118,19 +190,28 @@ def compile_articles():
                 if a['title'] not in seen:
                     seen.add(a['title'])
                     articles.append(a)
-            if results:
-                print(f"    ✓ {len(results)} articles from {feed_url}")
 
-        # Fallback to Google News if we didn't get enough
-        if len(articles) < 3:
-            print(f"    ↩ Falling back to Google News for {topic}")
+        if len(articles) < 2 and topic in FALLBACK_QUERIES:
+            print(f"    ↩ Falling back to Google News")
             fallback = fetch_news_google(FALLBACK_QUERIES[topic])
             for a in fallback:
                 if a['title'] not in seen:
                     seen.add(a['title'])
                     articles.append(a)
 
-        all_articles[topic] = articles[:8]  # cap at 8 per category
+        all_articles[topic] = articles[:6]
+
+    # Extra legislation pass: state-specific Google News queries
+    print("  → legislation (state + federal supplements)")
+    leg_seen = set(a['title'] for a in all_articles.get('legislation', []))
+    for q in LEGISLATION_STATE_QUERIES:
+        results = fetch_news_google(q, max_articles=2)
+        for a in results:
+            if a['title'] not in leg_seen:
+                leg_seen.add(a['title'])
+                all_articles['legislation'].append(a)
+    all_articles['legislation'] = all_articles['legislation'][:8]
+
     return all_articles
 
 
@@ -138,205 +219,421 @@ def compile_articles():
 def build_prompt(articles_by_topic):
     today = datetime.now().strftime('%A, %B %d, %Y')
 
+    # Build article reference block
     article_text = ""
-    url_map = {}
     counter = 1
-
     for topic, articles in articles_by_topic.items():
-        article_text += f"\n\n### {topic}\n"
+        article_text += f"\n\n### SOURCE CATEGORY: {topic.upper().replace('_', ' ')}\n"
         if not articles:
-            article_text += "_No articles retrieved for this category._\n"
+            article_text += "_No articles retrieved._\n"
             continue
         for a in articles:
-            ref_id = f"ARTICLE-{counter:02d}"
-            url_map[ref_id] = {"title": a['title'], "link": a['link']}
-            article_text += f"[{ref_id}] **{a['title']}**\n   {a['summary']}\n   URL: {a['link']}\n\n"
+            article_text += (
+                f"[ART-{counter:03d}] {a['title']}\n"
+                f"   Summary: {a['summary']}\n"
+                f"   URL: {a['link']}\n\n"
+            )
             counter += 1
 
-    return f"""You are preparing a daily morning intelligence briefing for Zack Cleveland, a senior wealth advisor at Parcion Private Wealth. Zack serves ultra-high-net-worth clients — primarily individuals and families with $20M+ in investable assets, most of whom have already sold a business or are actively planning to within the next 1–5 years. These are sophisticated, busy people who expect their advisor to bring them ideas, not just information. Zack holds a CFA charter and has deep expertise in portfolio management, estate planning, tax planning, and UHNW advisory. He needs to be the most informed person in the room.
+    return f"""You are the editorial intelligence behind "The Parcion Morning Brief" — a daily internal briefing sent to the 8 advisors at Parcion Private Wealth, a nationally recognized independent private family office serving business owners and UHNW families through pre-liquidity, liquidity, and post-liquidity events.
 
 Today is {today}.
 
-Below are today's top articles across five key categories. Each article has a reference ID (e.g. ARTICLE-01) and a URL. When you reference an article anywhere in the briefing, you MUST include its URL as a markdown hyperlink in the format: [Article Title](URL). Never reference an article by name without linking it.
+AUDIENCE: Experienced wealth advisors. Assume strong financial literacy. Do not define basic terms. Do write clearly enough that a newer advisor can follow along.
+
+GOAL: A focused, high-signal briefing readable in 5-7 minutes over coffee. Every section should earn its place. Skip any section or subsection entirely if there is no fresh, relevant content — do not pad or invent.
+
+VOICE RULES (non-negotiable):
+- Tone: calm, confident, analytically precise. Think CIO memo, not newsletter.
+- Do NOT refer to "Zack" or any individual by name. Use "advisors may want to consider..." or "this is worth raising with clients who..."
+- No investment recommendations. Observations on asset classes, macro conditions, and sectors only.
+- No specific stock or fund picks.
+- No language implying guaranteed outcomes.
+- No alarming language: never use "crash," "collapse," or "unprecedented."
+- Anchor volatility or uncertainty in historical context when relevant.
+- Approved framing for guarded optimism: "constructive but cautious."
+- When market conditions are bifurcated: "the K economy" is acceptable shorthand.
+- Use "wealth event" or "liquidity event" — not just "transaction."
+- Use "families" or "business owners" — not "high-net-worth individuals" or "HNWIs."
+- No filler phrases: "it is worth noting," "this highlights the importance of," "in today's complex landscape," etc.
+- No em dashes. Use commas or short sentence breaks instead.
+- Oxford comma always.
+- Links appear ONCE per article. Do not repeat the same link in multiple sections.
+- Every article link must be formatted as markdown: [Link](URL) — use the word "Link" as the anchor text, not the full URL.
+
+CONTENT RULES:
+- Parcion relevance = specific to pre/post-liquidity business owners and UHNW families. Never generic retail investor framing.
+- Conversation starters must be genuinely timely and tied to today's news. Only include ones that would be natural to act on today. If nothing qualifies, omit the section.
+- Optional Reads should feel substantive, not like filler. Free access only. Can be up to 3 years old if still relevant.
+
+---
+
+Here are today's source articles by category:
 
 {article_text}
 
 ---
 
-Produce a professional morning briefing using EXACTLY the following structure. Use clean markdown formatting throughout.
-
-Every section that contains a summary, observation, or analysis must include TWO additional labeled lines after the main content:
-- **Parcion Relevance:** How this specifically affects Parcion's client base — post-liquidity and pre-liquidity business owners, UHNW families. What should Zack be doing or saying as a result?
-- **Plain English:** A single sentence that explains the core idea as if speaking to a smart but non-financial friend. No jargon.
-
-# Morning Briefing — {today}
+Now produce the briefing using EXACTLY this structure. Use clean markdown. Do not include section headers that have no content.
 
 ---
 
-## Macro Themes & Notable Events
-[Write 2–3 focused paragraphs. What are the dominant themes across today's news? What is the overall market, macro, and geopolitical environment? Reference specific stories and link them inline. What should a UHNW advisor be watching closely this week?]
-
-**Parcion Relevance:** [How do today's macro themes affect Parcion clients — portfolio positioning, deal timing, estate planning windows, client psychology? What's the one thing Zack should raise on calls this week?]
-
-**Plain English:** [One sentence. What is actually happening in the world right now, in terms anyone could understand?]
+# The Parcion Morning Brief
+### {today}
 
 ---
 
-## Secular Trends Worth Watching
-- [Trend 1: A longer-term structural trend visible in today's news. Link any relevant articles inline. Include the implication for UHNW clients.]
-  - **Parcion Relevance:** [Specific impact on Parcion's client base or practice.]
-  - **Plain English:** [One plain-language sentence.]
+## Notable Events
 
-- [Trend 2: Same format.]
-  - **Parcion Relevance:** [...]
-  - **Plain English:** [...]
+Five of the most significant news items or events from today. Each is one to two punchy sentences with a [Link](URL) at the end. CIO tone. Analytical, not alarmist. Focus on what matters for business owners, investors, and families with significant wealth.
 
-- [Trend 3: Same format.]
-  - **Parcion Relevance:** [...]
-  - **Plain English:** [...]
+- [Event 1 — one to two sentences.] ([Link](URL))
+- [Event 2] ([Link](URL))
+- [Event 3] ([Link](URL))
+- [Event 4] ([Link](URL))
+- [Event 5] ([Link](URL))
 
 ---
 
-## Client Conversation Starters
-This section is the most important in the briefing. Zack's clients are $20M+ individuals — most are former business owners sitting on significant liquidity, or owners still running their business who are thinking about an eventual exit. They are not passive investors. They want their advisor to bring them sharp, timely ideas and ask them questions nobody else is asking.
+## Sector Review
 
-Provide 6–8 specific conversation starters, each tied directly to a story from today's news. For each one:
+Only include subsections where there is fresh, genuinely relevant content. Skip any subsection with no strong material today — do not pad.
 
-**[Conversation topic — 5 words or less]**
-- **The hook:** One sentence Zack could actually say to open the conversation — natural, not salesy.
-- **Why now:** What in today's news makes this timely? Link the relevant article.
-- **Who to call:** What type of client is this most relevant for? (e.g. "post-liquidity client reinvesting proceeds", "business owner in manufacturing with $30M+ EBITDA", "client with large unrealized gains in a concentrated position")
-- **Where it goes:** If the client engages, what's the planning idea, product, or next step? Be specific — name the technique, structure, or vehicle (e.g. GRAT, IDGT, QOZ, CRT, installment sale, Roth conversion, separately managed account, private credit allocation, etc.)
-- **Parcion Relevance:** One sentence on why this matters specifically to Parcion's practice and client base.
-- **Plain English:** One sentence version of the whole idea, zero jargon.
+For each subsection, list 1-3 items. Each item follows this exact format:
+
+**Headline text** ([Link](URL))
+**Punchline:** One to two sentences max. The TL;DR.
+**Summary:** A brief paragraph. More depth than the punchline, but concise. Consider total email length.
+**Relevance:** One to two sentences on why advisors at a family office serving business owners should be reading this.
 
 ---
 
-## Articles Worth Forwarding to Clients
-Identify 3–5 articles from today's feed that are genuinely worth forwarding to a client or prospect. For each:
+### Geopolitics
 
-**[Article Title](URL)**
-- **Send to:** What type of client — be specific about their situation, industry, or life stage.
-- **Why it's worth sending:** One sentence on what makes this relevant or timely for that client.
-- **Suggested note:** A 1–2 sentence email or text Zack could send alongside the article. Conversational, not formal.
+[Items if available]
+
+### Developed Markets
+
+[Items if available]
+
+### International Markets
+
+[Items if available]
+
+### Private Equity
+
+[Items if available]
+
+### Private Credit
+
+[Items if available]
+
+### Venture Capital
+
+[Items if available]
+
+### Real Estate
+
+[Items if available]
+
+### Commodities
+
+[Items if available]
+
+### Precious Metals
+
+[Items if available]
+
+### Estate and Tax Planning
+
+[Items if available]
+
+### M&A and Business Sales
+
+[Items if available]
+
+### Wealth Management and Family Office
+
+[Items if available]
 
 ---
 
-## Actionable Ideas for Your Practice This Week
-- [Idea 1: A planning window, deadline, or opportunity to exploit. Name the technique and why now.]
-- [Idea 2: A prospect angle for a business-owner client — what question to ask, what scenario to model.]
-- [Idea 3: A research task or concept to get sharp on before a client meeting, based on today's news.]
-- [Idea 4: A positioning or relationship move — a note to send, an event to reference, a topic for the next quarterly review.]
-- [Idea 5: Any other timely idea directly tied to today's headlines.]
+## Legislation Updates
+
+Recent or newly issued legislation, regulatory guidance, or enforcement updates relevant to investing, estate planning, or taxes from a UHNW or private business owner perspective. Cover federal and the following states where relevant: Texas, Washington, Oregon, California, Arizona.
+
+If nothing material has surfaced today, omit this section entirely.
+
+For each item:
+**[Jurisdiction — Topic]** ([Link](URL))
+One to two sentences on what changed or was proposed, and why it matters for advisors working with business owners or UHNW families.
 
 ---
 
-## Today's Headlines by Category
+## Conversation Starters
 
-### Markets & Investing
+Only include this section if today's news surfaced 2-3 genuinely strong, timely angles worth raising with a client or prospect. Do not force this. If the material is not there, omit the section.
 
-[List 4–5 stories in this format:]
-**[Full Headline](URL) — [Source]**
-[2–3 sentence summary of what happened and why it matters.]
-**Parcion Relevance:** [One sentence: how does this affect a Parcion client's portfolio, planning, or psychology?]
-**Plain English:** [One sentence anyone would understand.]
-*Advisor angle:* [One sentence: what should Zack say or do?]
-
-### Geopolitics & Macro
-
-[Same format, 4–5 stories.]
-
-### Estate & Tax Planning
-
-[Same format, 4–5 stories.]
-
-### Selling a Business / M&A
-
-[Same format, 4–5 stories.]
-
-### Wealth Management & Family Office
-
-[Same format, 4–5 stories.]
+For each:
+**[Topic — 4 words or less]**
+- **The angle:** One sentence an advisor could naturally say to open the conversation. Direct, not salesy.
+- **Why now:** What in today's news makes this timely. Include [Link](URL).
+- **Who it fits:** What type of client or prospect — be specific about their situation.
+- **Where it goes:** The planning idea, technique, or next step if they engage. Name it specifically.
 
 ---
 
-Non-negotiable rules:
-- Every article reference anywhere in the briefing MUST be a working markdown hyperlink using the URL provided. No exceptions.
-- Assume CFA-level financial literacy for the main analysis. No definitions, no hand-holding in the core content.
-- The Plain English lines are the ONE exception — genuinely simple, like texting a smart friend who doesn't follow markets.
-- Be specific. Reference actual numbers, company names, and events where available.
-- Zero filler phrases ("it is worth noting", "this highlights the importance of", etc.)
-- Parcion Relevance must always be specific to post-liquidity or pre-liquidity business owners and UHNW families — never generic retail investor advice.
-- The Client Conversation Starters must be tied to today's specific headlines — not generic best practices. The goal is that Zack could pick up the phone and use these today.
-- Plain English lines: one sentence, under 30 words, zero jargon.
-- Suggested forwarding notes must sound like Zack wrote them — brief, warm, direct. Not like a newsletter."""
+## Growing Your Network
+
+3-4 quick bulleted ideas for advisors to grow their book through COI relationships and prospect outreach. COIs include CPAs, estate attorneys, M&A lawyers, and investment bankers — people adjacent to large business owners and UHNW families. If a creative AI-assisted outreach idea surfaces, include it.
+
+- [Idea 1]
+- [Idea 2]
+- [Idea 3]
+- [Idea 4 if warranted]
+
+---
+
+## Optional Reads
+
+2-3 longer-form reads — white papers, research reports, or substantive opinion pieces — for advisors who want to go deeper. Free access only. Can be up to 3 years old if still relevant to today's themes.
+
+**[Title]** ([Link](URL))
+One sentence on what it covers and why it is worth the time.
+
+---"""
 
 
-# ─── Call Claude API ───────────────────────────────────────────────────────────
+# ─── Call Claude API (with streaming to avoid timeout) ─────────────────────────
 def synthesize_with_claude(articles_by_topic):
-    client  = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-    prompt  = build_prompt(articles_by_topic)
-    message = client.messages.create(
+    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+    prompt = build_prompt(articles_by_topic)
+
+    print(f"      Prompt length: {len(prompt):,} characters")
+
+    full_text = ""
+    with client.messages.stream(
         model="claude-sonnet-4-6",
-        max_tokens=16000,
+        max_tokens=8000,
         messages=[{"role": "user", "content": prompt}]
-    )
-    return message.content[0].text
+    ) as stream:
+        for text in stream.text_stream:
+            full_text += text
+
+    return full_text
 
 
 # ─── Format & Send Email ───────────────────────────────────────────────────────
-def send_email(briefing_md):
-    today   = datetime.now().strftime('%B %d, %Y')
-    subject = f"Morning Briefing — {today}"
-
+def build_html(briefing_md, today_str):
     html_body = markdown.markdown(briefing_md, extensions=['extra'])
 
-    html = f"""<!DOCTYPE html>
-<html>
+    return f"""<!DOCTYPE html>
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
+  /* ── Reset ── */
+  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+
   body {{
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Georgia, serif;
-    max-width: 680px; margin: 0 auto; padding: 24px 28px;
-    color: #1a1a1a; line-height: 1.7; font-size: 15px; background: #ffffff;
+    background-color: #f4f4f0;
+    font-family: 'Palatino Linotype', Palatino, 'Book Antiqua', Georgia, serif;
+    color: #1a1a1a;
+    font-size: 15px;
+    line-height: 1.75;
+    padding: 32px 16px;
   }}
+
+  /* ── Outer wrapper ── */
+  .wrapper {{
+    max-width: 660px;
+    margin: 0 auto;
+    background: #ffffff;
+    border-top: 4px solid #B99A38;
+  }}
+
+  /* ── Header ── */
+  .header {{
+    background-color: #00141C;
+    padding: 28px 36px 24px;
+    text-align: left;
+  }}
+
+  .header-wordmark {{
+    font-family: 'Century Gothic', 'Gill Sans', 'Trebuchet MS', Arial, sans-serif;
+    font-size: 22px;
+    font-weight: 300;
+    letter-spacing: 0.22em;
+    color: #B99A38;
+    text-transform: uppercase;
+    display: block;
+  }}
+
+  .header-sub {{
+    font-family: 'Century Gothic', 'Gill Sans', Arial, sans-serif;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    color: #7a8f96;
+    text-transform: uppercase;
+    margin-top: 4px;
+    display: block;
+  }}
+
+  .header-date {{
+    font-family: 'Palatino Linotype', Palatino, Georgia, serif;
+    font-size: 12px;
+    color: #4a6470;
+    margin-top: 10px;
+    display: block;
+    font-style: italic;
+  }}
+
+  /* ── Content ── */
+  .content {{
+    padding: 32px 36px 40px;
+  }}
+
+  /* ── Typography ── */
   h1 {{
-    color: #0d2b4e; font-size: 22px; margin-bottom: 4px;
-    border-bottom: 3px solid #0d2b4e; padding-bottom: 12px;
+    font-family: 'Century Gothic', 'Gill Sans', Arial, sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #00141C;
+    margin-top: 36px;
+    margin-bottom: 14px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid #B99A38;
   }}
+
   h2 {{
-    color: #0d2b4e; font-size: 16px; font-weight: 700;
-    margin-top: 32px; margin-bottom: 8px;
-    border-left: 4px solid #0d2b4e; padding-left: 10px;
+    font-family: 'Century Gothic', 'Gill Sans', Arial, sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #00141C;
+    margin-top: 28px;
+    margin-bottom: 10px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid #e0ddd5;
   }}
+
   h3 {{
-    color: #2c5282; font-size: 13px; font-weight: 700;
-    margin-top: 20px; margin-bottom: 6px;
-    text-transform: uppercase; letter-spacing: 0.06em;
+    font-family: 'Century Gothic', 'Gill Sans', Arial, sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+    color: #B99A38;
+    margin-top: 22px;
+    margin-bottom: 8px;
   }}
-  p {{ margin: 6px 0 12px 0; }}
-  ul {{ margin: 6px 0 14px 0; padding-left: 20px; }}
-  li {{ margin-bottom: 8px; }}
-  strong {{ color: #0d2b4e; }}
-  em {{ color: #555; font-style: italic; }}
-  a {{ color: #2c5282; text-decoration: underline; }}
-  hr {{ border: none; border-top: 1px solid #dde3ea; margin: 26px 0; }}
+
+  p {{
+    margin-bottom: 12px;
+    color: #1a1a1a;
+  }}
+
+  ul, ol {{
+    margin: 8px 0 14px 0;
+    padding-left: 20px;
+  }}
+
+  li {{
+    margin-bottom: 9px;
+    color: #1a1a1a;
+  }}
+
+  strong {{
+    color: #00141C;
+    font-weight: 700;
+  }}
+
+  em {{
+    color: #555;
+    font-style: italic;
+  }}
+
+  a {{
+    color: #1E6685;
+    text-decoration: none;
+    border-bottom: 1px solid #c5dde8;
+  }}
+
+  a:hover {{
+    color: #B99A38;
+    border-bottom-color: #B99A38;
+  }}
+
+  hr {{
+    border: none;
+    border-top: 1px solid #e8e5dd;
+    margin: 28px 0;
+  }}
+
+  /* ── Article items ── */
+  blockquote {{
+    border-left: 3px solid #B99A38;
+    margin: 12px 0;
+    padding: 6px 0 6px 14px;
+    color: #444;
+    font-style: italic;
+  }}
+
+  /* ── Footer ── */
   .footer {{
-    margin-top: 40px; font-size: 11px; color: #aaa;
-    border-top: 1px solid #eee; padding-top: 14px;
+    background-color: #00141C;
+    padding: 18px 36px;
+    text-align: left;
+  }}
+
+  .footer p {{
+    font-family: 'Century Gothic', Arial, sans-serif;
+    font-size: 10px;
+    letter-spacing: 0.10em;
+    color: #4a6470;
+    text-transform: uppercase;
+    margin: 0;
+  }}
+
+  .footer a {{
+    color: #B99A38;
+    border-bottom: none;
+    text-decoration: none;
   }}
 </style>
 </head>
 <body>
-{html_body}
-<div class="footer">
-  Parcion Private Wealth &nbsp;·&nbsp; Morning Briefing &nbsp;·&nbsp; {today}<br>
-  Sources: Curated RSS Feeds &nbsp;·&nbsp; Synthesized by Claude Sonnet
-</div>
+  <div class="wrapper">
+
+    <div class="header">
+      <span class="header-wordmark">Parcion</span>
+      <span class="header-sub">Private Wealth &nbsp;·&nbsp; Morning Brief</span>
+      <span class="header-date">{today_str}</span>
+    </div>
+
+    <div class="content">
+      {html_body}
+    </div>
+
+    <div class="footer">
+      <p>Parcion Private Wealth &nbsp;·&nbsp; Internal Use Only &nbsp;·&nbsp;
+         <a href="https://www.parcionpw.com">parcionpw.com</a></p>
+    </div>
+
+  </div>
 </body>
 </html>"""
+
+
+def send_email(briefing_md):
+    today_str = datetime.now().strftime('%A, %B %d, %Y')
+    subject   = f"The Parcion Morning Brief — {datetime.now().strftime('%B %d, %Y')}"
+
+    html = build_html(briefing_md, today_str)
 
     msg = MIMEMultipart('alternative')
     msg['Subject'] = subject
@@ -356,12 +653,13 @@ def send_email(briefing_md):
 # ─── Main ──────────────────────────────────────────────────────────────────────
 def main():
     print(f"\n{'─' * 54}")
-    print(f"  Morning Briefing · {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}")
+    print(f"  The Parcion Morning Brief")
+    print(f"  {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}")
     print(f"{'─' * 54}")
 
     print("\n[1/3] Fetching news articles...")
     articles = compile_articles()
-    total    = sum(len(v) for v in articles.values())
+    total = sum(len(v) for v in articles.values())
     print(f"      {total} articles across {len(articles)} categories")
 
     print("\n[2/3] Synthesizing with Claude...")
@@ -371,7 +669,7 @@ def main():
     print("\n[3/3] Sending email...")
     send_email(briefing)
 
-    print("\n  All done.\n")
+    print("\n  Done.\n")
 
 
 if __name__ == "__main__":
