@@ -15,8 +15,6 @@ from email.mime.text import MIMEText
 from datetime import datetime
 import anthropic
 
-for key in ['GMAIL_ADDRESS', 'GMAIL_APP_PASSWORD', 'WORK_EMAIL', 'ANTHROPIC_API_KEY']:
-    print(f"  {'✓' if os.environ.get(key) else '✗ MISSING'} {key}")
 
 # ─── Configuration (loaded from GitHub Secrets) ───────────────────────────────
 GMAIL_ADDRESS      = os.environ['GMAIL_ADDRESS']
@@ -140,9 +138,8 @@ def compile_articles():
 def build_prompt(articles_by_topic):
     today = datetime.now().strftime('%A, %B %d, %Y')
 
-    # Build article text AND a URL reference map Claude can cite
     article_text = ""
-    url_map = {}  # "ARTICLE-01" -> {title, link}
+    url_map = {}
     counter = 1
 
     for topic, articles in articles_by_topic.items():
@@ -287,4 +284,95 @@ def synthesize_with_claude(articles_by_topic):
     return message.content[0].text
 
 
-# ─── Format & Send Email ───────────────────
+# ─── Format & Send Email ───────────────────────────────────────────────────────
+def send_email(briefing_md):
+    today   = datetime.now().strftime('%B %d, %Y')
+    subject = f"Morning Briefing — {today}"
+
+    html_body = markdown.markdown(briefing_md, extensions=['extra'])
+
+    html = f"""<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+  body {{
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Georgia, serif;
+    max-width: 680px; margin: 0 auto; padding: 24px 28px;
+    color: #1a1a1a; line-height: 1.7; font-size: 15px; background: #ffffff;
+  }}
+  h1 {{
+    color: #0d2b4e; font-size: 22px; margin-bottom: 4px;
+    border-bottom: 3px solid #0d2b4e; padding-bottom: 12px;
+  }}
+  h2 {{
+    color: #0d2b4e; font-size: 16px; font-weight: 700;
+    margin-top: 32px; margin-bottom: 8px;
+    border-left: 4px solid #0d2b4e; padding-left: 10px;
+  }}
+  h3 {{
+    color: #2c5282; font-size: 13px; font-weight: 700;
+    margin-top: 20px; margin-bottom: 6px;
+    text-transform: uppercase; letter-spacing: 0.06em;
+  }}
+  p {{ margin: 6px 0 12px 0; }}
+  ul {{ margin: 6px 0 14px 0; padding-left: 20px; }}
+  li {{ margin-bottom: 8px; }}
+  strong {{ color: #0d2b4e; }}
+  em {{ color: #555; font-style: italic; }}
+  a {{ color: #2c5282; text-decoration: underline; }}
+  hr {{ border: none; border-top: 1px solid #dde3ea; margin: 26px 0; }}
+  .footer {{
+    margin-top: 40px; font-size: 11px; color: #aaa;
+    border-top: 1px solid #eee; padding-top: 14px;
+  }}
+</style>
+</head>
+<body>
+{html_body}
+<div class="footer">
+  Parcion Private Wealth &nbsp;·&nbsp; Morning Briefing &nbsp;·&nbsp; {today}<br>
+  Sources: Curated RSS Feeds &nbsp;·&nbsp; Synthesized by Claude Sonnet
+</div>
+</body>
+</html>"""
+
+    msg = MIMEMultipart('alternative')
+    msg['Subject'] = subject
+    msg['From']    = GMAIL_ADDRESS
+    msg['To']      = WORK_EMAIL
+
+    msg.attach(MIMEText(briefing_md, 'plain', 'utf-8'))
+    msg.attach(MIMEText(html,        'html',  'utf-8'))
+
+    with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
+        server.login(GMAIL_ADDRESS, GMAIL_APP_PASSWORD)
+        server.sendmail(GMAIL_ADDRESS, WORK_EMAIL, msg.as_string())
+
+    print(f"  ✓ Email sent to {WORK_EMAIL}")
+
+
+# ─── Main ──────────────────────────────────────────────────────────────────────
+def main():
+    print(f"\n{'─' * 54}")
+    print(f"  Morning Briefing · {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}")
+    print(f"{'─' * 54}")
+
+    print("\n[1/3] Fetching news articles...")
+    articles = compile_articles()
+    total    = sum(len(v) for v in articles.values())
+    print(f"      {total} articles across {len(articles)} categories")
+
+    print("\n[2/3] Synthesizing with Claude...")
+    briefing = synthesize_with_claude(articles)
+    print(f"      Briefing ready ({len(briefing):,} characters)")
+
+    print("\n[3/3] Sending email...")
+    send_email(briefing)
+
+    print("\n  All done.\n")
+
+
+if __name__ == "__main__":
+    main()
