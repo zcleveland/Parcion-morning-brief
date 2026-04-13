@@ -138,20 +138,28 @@ def compile_articles():
 def build_prompt(articles_by_topic):
     today = datetime.now().strftime('%A, %B %d, %Y')
 
+    # Build article text AND a URL reference map Claude can cite
     article_text = ""
+    url_map = {}  # "ARTICLE-01" -> {title, link}
+    counter = 1
+
     for topic, articles in articles_by_topic.items():
         article_text += f"\n\n### {topic}\n"
         if not articles:
             article_text += "_No articles retrieved for this category._\n"
             continue
-        for i, a in enumerate(articles, 1):
-            article_text += f"{i}. **{a['title']}**\n   {a['summary']}\n\n"
+        for a in articles:
+            ref_id = f"ARTICLE-{counter:02d}"
+            url_map[ref_id] = {"title": a['title'], "link": a['link']}
+            article_text += f"[{ref_id}] **{a['title']}**\n   {a['summary']}\n   URL: {a['link']}\n\n"
+            counter += 1
 
-    return f"""You are preparing a daily morning intelligence briefing for Zack Cleveland, a senior wealth advisor at Parcion Private Wealth. Zack serves ultra-high-net-worth families (typically $10M–$500M+ in investable assets). A significant portion of his clients and prospects are business owners who are actively considering or planning a sale of their business within the next 1–5 years. Zack holds a CFA charter and has deep expertise in portfolio management, estate planning, tax planning, and UHNW advisory. He needs to be the most informed person in the room.
+    return f"""You are preparing a daily morning intelligence briefing for Zack Cleveland, a senior wealth advisor at Parcion Private Wealth. Zack serves ultra-high-net-worth clients — primarily individuals and families with $20M+ in investable assets, most of whom have already sold a business or are actively planning to within the next 1–5 years. These are sophisticated, busy people who expect their advisor to bring them ideas, not just information. Zack holds a CFA charter and has deep expertise in portfolio management, estate planning, tax planning, and UHNW advisory. He needs to be the most informed person in the room.
 
 Today is {today}.
 
-Below are today's top articles across five key categories:
+Below are today's top articles across five key categories. Each article has a reference ID (e.g. ARTICLE-01) and a URL. When you reference an article anywhere in the briefing, you MUST include its URL as a markdown hyperlink in the format: [Article Title](URL). Never reference an article by name without linking it.
+
 {article_text}
 
 ---
@@ -159,7 +167,7 @@ Below are today's top articles across five key categories:
 Produce a professional morning briefing using EXACTLY the following structure. Use clean markdown formatting throughout.
 
 Every section that contains a summary, observation, or analysis must include TWO additional labeled lines after the main content:
-- **Parcion Relevance:** How this specifically affects Parcion's client base — business owners, UHNW families, and pre-liquidity prospects. What should Zack be doing or saying as a result?
+- **Parcion Relevance:** How this specifically affects Parcion's client base — post-liquidity and pre-liquidity business owners, UHNW families. What should Zack be doing or saying as a result?
 - **Plain English:** A single sentence that explains the core idea as if speaking to a smart but non-financial friend. No jargon.
 
 # Morning Briefing — {today}
@@ -167,16 +175,16 @@ Every section that contains a summary, observation, or analysis must include TWO
 ---
 
 ## Macro Themes & Notable Events
-[Write 2–3 focused paragraphs. What are the dominant themes across today's news? What is the overall market, macro, and geopolitical environment? What crosscurrents or confluences stand out? Reference specific stories — do not be generic. What should a UHNW advisor be watching closely this week?]
+[Write 2–3 focused paragraphs. What are the dominant themes across today's news? What is the overall market, macro, and geopolitical environment? Reference specific stories and link them inline. What should a UHNW advisor be watching closely this week?]
 
-**Parcion Relevance:** [How do today's macro themes specifically affect Parcion clients — portfolio positioning, deal timing, estate planning windows, client psychology? What's the one thing Zack should be bringing up in calls this week?]
+**Parcion Relevance:** [How do today's macro themes affect Parcion clients — portfolio positioning, deal timing, estate planning windows, client psychology? What's the one thing Zack should raise on calls this week?]
 
 **Plain English:** [One sentence. What is actually happening in the world right now, in terms anyone could understand?]
 
 ---
 
 ## Secular Trends Worth Watching
-- [Trend 1: A longer-term structural trend visible in today's news — e.g., estate tax exemption trajectory, M&A cycle stage, rate regime implications, geopolitical realignment. Include the implication for UHNW clients.]
+- [Trend 1: A longer-term structural trend visible in today's news. Link any relevant articles inline. Include the implication for UHNW clients.]
   - **Parcion Relevance:** [Specific impact on Parcion's client base or practice.]
   - **Plain English:** [One plain-language sentence.]
 
@@ -190,12 +198,37 @@ Every section that contains a summary, observation, or analysis must include TWO
 
 ---
 
+## Client Conversation Starters
+This section is the most important in the briefing. Zack's clients are $20M+ individuals — most are former business owners sitting on significant liquidity, or owners still running their business who are thinking about an eventual exit. They are not passive investors. They want their advisor to bring them sharp, timely ideas and ask them questions nobody else is asking.
+
+Provide 6–8 specific conversation starters, each tied directly to a story from today's news. For each one:
+
+**[Conversation topic — 5 words or less]**
+- **The hook:** One sentence Zack could actually say to open the conversation — natural, not salesy.
+- **Why now:** What in today's news makes this timely? Link the relevant article.
+- **Who to call:** What type of client is this most relevant for? (e.g. "post-liquidity client reinvesting proceeds", "business owner in manufacturing with $30M+ EBITDA", "client with large unrealized gains in a concentrated position")
+- **Where it goes:** If the client engages, what's the planning idea, product, or next step? Be specific — name the technique, structure, or vehicle (e.g. GRAT, IDGT, QOZ, CRT, installment sale, Roth conversion, separately managed account, private credit allocation, etc.)
+- **Parcion Relevance:** One sentence on why this matters specifically to Parcion's practice and client base.
+- **Plain English:** One sentence version of the whole idea, zero jargon.
+
+---
+
+## Articles Worth Forwarding to Clients
+Identify 3–5 articles from today's feed that are genuinely worth forwarding to a client or prospect. For each:
+
+**[Article Title](URL)**
+- **Send to:** What type of client — be specific about their situation, industry, or life stage.
+- **Why it's worth sending:** One sentence on what makes this relevant or timely for that client.
+- **Suggested note:** A 1–2 sentence email or text Zack could send alongside the article. Conversational, not formal.
+
+---
+
 ## Actionable Ideas for Your Practice This Week
-- [Idea 1: A specific client conversation to initiate, tied directly to a story above. Name the type of client and what to say.]
-- [Idea 2: A planning window, deadline, or opportunity to exploit. Be specific about timing and technique — e.g., GRAT, IDGT, installment sale, Roth conversion, etc.]
-- [Idea 3: A prospect angle for a business-owner client — what question to ask, what scenario to model, what concern to surface.]
-- [Idea 4: A research task or concept to get sharp on before a client meeting, based on today's news.]
-- [Idea 5: A positioning or relationship move — a note to send, an article to forward, a topic to add to the next quarterly review agenda.]
+- [Idea 1: A planning window, deadline, or opportunity to exploit. Name the technique and why now.]
+- [Idea 2: A prospect angle for a business-owner client — what question to ask, what scenario to model.]
+- [Idea 3: A research task or concept to get sharp on before a client meeting, based on today's news.]
+- [Idea 4: A positioning or relationship move — a note to send, an event to reference, a topic for the next quarterly review.]
+- [Idea 5: Any other timely idea directly tied to today's headlines.]
 
 ---
 
@@ -204,11 +237,11 @@ Every section that contains a summary, observation, or analysis must include TWO
 ### Markets & Investing
 
 [List 4–5 stories in this format:]
-**[Full Headline] — [Source]**
-[2–3 sentence summary of what happened and why it matters to markets or the economy.]
-**Parcion Relevance:** [One specific sentence: how does this affect a Parcion client's portfolio, planning, or psychology?]
-**Plain English:** [One sentence a non-finance person would immediately understand.]
-*Advisor angle:* [One specific sentence: what should Zack say or do as a result of this story?]
+**[Full Headline](URL) — [Source]**
+[2–3 sentence summary of what happened and why it matters.]
+**Parcion Relevance:** [One sentence: how does this affect a Parcion client's portfolio, planning, or psychology?]
+**Plain English:** [One sentence anyone would understand.]
+*Advisor angle:* [One sentence: what should Zack say or do?]
 
 ### Geopolitics & Macro
 
@@ -229,13 +262,15 @@ Every section that contains a summary, observation, or analysis must include TWO
 ---
 
 Non-negotiable rules:
+- Every article reference anywhere in the briefing MUST be a working markdown hyperlink using the URL provided. No exceptions.
 - Assume CFA-level financial literacy for the main analysis. No definitions, no hand-holding in the core content.
-- The Plain English lines are the ONE exception — these must be genuinely simple. Write them as if texting a smart friend who doesn't follow markets.
+- The Plain English lines are the ONE exception — genuinely simple, like texting a smart friend who doesn't follow markets.
 - Be specific. Reference actual numbers, company names, and events where available.
-- Every sentence must carry information. Zero filler phrases ("it is worth noting", "this highlights the importance of", etc.)
-- Parcion Relevance must always be specific to UHNW families and business-owner clients — never generic retail investor advice.
-- The actionable ideas must be directly tied to today's specific headlines — not generic best practices.
-- Plain English lines should be one sentence, under 30 words, zero jargon."""
+- Zero filler phrases ("it is worth noting", "this highlights the importance of", etc.)
+- Parcion Relevance must always be specific to post-liquidity or pre-liquidity business owners and UHNW families — never generic retail investor advice.
+- The Client Conversation Starters must be tied to today's specific headlines — not generic best practices. The goal is that Zack could pick up the phone and use these today.
+- Plain English lines: one sentence, under 30 words, zero jargon.
+- Suggested forwarding notes must sound like Zack wrote them — brief, warm, direct. Not like a newsletter."""
 
 
 # ─── Call Claude API ───────────────────────────────────────────────────────────
@@ -244,101 +279,10 @@ def synthesize_with_claude(articles_by_topic):
     prompt  = build_prompt(articles_by_topic)
     message = client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=6000,
+        max_tokens=8000,
         messages=[{"role": "user", "content": prompt}]
     )
     return message.content[0].text
 
 
-# ─── Format & Send Email ───────────────────────────────────────────────────────
-def send_email(briefing_md):
-    today   = datetime.now().strftime('%B %d, %Y')
-    subject = f"Morning Briefing — {today}"
-
-    # Convert markdown to HTML
-    html_body = markdown.markdown(briefing_md, extensions=['extra'])
-
-    html = f"""<!DOCTYPE html>
-<html>
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<style>
-  body {{
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Georgia, serif;
-    max-width: 680px; margin: 0 auto; padding: 24px 28px;
-    color: #1a1a1a; line-height: 1.7; font-size: 15px; background: #ffffff;
-  }}
-  h1 {{
-    color: #0d2b4e; font-size: 22px; margin-bottom: 4px;
-    border-bottom: 3px solid #0d2b4e; padding-bottom: 12px;
-  }}
-  h2 {{
-    color: #0d2b4e; font-size: 16px; font-weight: 700;
-    margin-top: 32px; margin-bottom: 8px;
-    border-left: 4px solid #0d2b4e; padding-left: 10px;
-  }}
-  h3 {{
-    color: #2c5282; font-size: 13px; font-weight: 700;
-    margin-top: 20px; margin-bottom: 6px;
-    text-transform: uppercase; letter-spacing: 0.06em;
-  }}
-  p {{ margin: 6px 0 12px 0; }}
-  ul {{ margin: 6px 0 14px 0; padding-left: 20px; }}
-  li {{ margin-bottom: 8px; }}
-  strong {{ color: #0d2b4e; }}
-  em {{ color: #555; font-style: italic; }}
-  hr {{ border: none; border-top: 1px solid #dde3ea; margin: 26px 0; }}
-  .footer {{
-    margin-top: 40px; font-size: 11px; color: #aaa;
-    border-top: 1px solid #eee; padding-top: 14px;
-  }}
-</style>
-</head>
-<body>
-{html_body}
-<div class="footer">
-  Parcion Private Wealth &nbsp;·&nbsp; Morning Briefing &nbsp;·&nbsp; {today}<br>
-  Sources: Curated RSS Feeds &nbsp;·&nbsp; Synthesized by Claude Sonnet
-</div>
-</body>
-</html>"""
-
-    msg = MIMEMultipart('alternative')
-    msg['Subject'] = subject
-    msg['From']    = GMAIL_ADDRESS
-    msg['To']      = WORK_EMAIL
-
-    msg.attach(MIMEText(briefing_md, 'plain', 'utf-8'))
-    msg.attach(MIMEText(html,        'html',  'utf-8'))
-
-    with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
-        server.login(GMAIL_ADDRESS, GMAIL_APP_PASSWORD)
-        server.sendmail(GMAIL_ADDRESS, WORK_EMAIL, msg.as_string())
-
-    print(f"  ✓ Email sent to {WORK_EMAIL}")
-
-
-# ─── Main ──────────────────────────────────────────────────────────────────────
-def main():
-    print(f"\n{'─' * 54}")
-    print(f"  Morning Briefing · {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}")
-    print(f"{'─' * 54}")
-
-    print("\n[1/3] Fetching news articles...")
-    articles = compile_articles()
-    total    = sum(len(v) for v in articles.values())
-    print(f"      {total} articles across {len(articles)} categories")
-
-    print("\n[2/3] Synthesizing with Claude...")
-    briefing = synthesize_with_claude(articles)
-    print(f"      Briefing ready ({len(briefing):,} characters)")
-
-    print("\n[3/3] Sending email...")
-    send_email(briefing)
-
-    print("\n  All done.\n")
-
-
-if __name__ == "__main__":
-    main()
+# ─── Format & Send Email ───────────────────
