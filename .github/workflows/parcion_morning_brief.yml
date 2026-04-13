@@ -43,4 +43,4 @@ jobs:
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           WORK_EMAIL:         ${{ secrets.WORK_EMAIL }}
           ANTHROPIC_API_KEY:  ${{ secrets.ANTHROPIC_API_KEY }}
-        run: python daily_briefing.py
+        run: python parcion_morning_brief.py
