@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Daily Morning Briefing — Parcion Private Wealth
-Fetches news via Google News RSS, synthesizes with Claude, sends via Gmail.
+Fetches news via curated RSS feeds (with Google News fallback), synthesizes with Claude, sends via Gmail.
 """
 
 import feedparser
@@ -23,19 +23,54 @@ WORK_EMAIL         = os.environ['WORK_EMAIL']
 ANTHROPIC_API_KEY  = os.environ['ANTHROPIC_API_KEY']
 
 
-# ─── News Topics ───────────────────────────────────────────────────────────────
-# Each entry is: "Category Name": "Google News search query"
-TOPICS = {
+# ─── News Sources ──────────────────────────────────────────────────────────────
+DIRECT_FEEDS = {
+    "Markets & Investing": [
+        "https://finance.yahoo.com/rss/topstories",
+        "https://seekingalpha.com/feed.xml",
+        "https://www.morningstar.com/rss/rss.xml",
+        "https://rpc.cfainstitute.org/feed",
+    ],
+    "Geopolitics & Macro": [
+        "https://warontherocks.com/feed/",
+        "https://www.geopoliticalmonitor.com/feed/",
+        "https://geopoliticalfutures.com/feed/",
+        "https://www.foreignaffairs.com/rss.xml",
+        "https://www.criticalthreats.org/feed",
+        "https://www.aei.org/feed/",
+    ],
+    "Estate & Tax Planning": [
+        "https://taxpolicycenter.org/taxvox/feed",
+        "https://www.journalofaccountancy.com/rss/all-content.xml",
+        "https://www.kiplinger.com/feed/rss",
+        "https://www.irs.gov/rss-feeds/irs-news-releases",
+    ],
+    "Selling a Business / M&A": [
+        "https://www.themiddlemarket.com/feed",
+        "https://hbr.org/feed/topic/mergers-and-acquisitions",
+        "https://pitchbook.com/rss/news",
+    ],
+    "Wealth Management & Family Office": [
+        "https://www.thinkadvisor.com/feed/",
+        "https://www.wealthmanagement.com/rss.xml",
+        "https://www.investmentnews.com/feed",
+        "https://www.advisorhub.com/feed/",
+        "https://citywire.com/ria/rss",
+    ],
+}
+
+# Google News fallback queries (used if direct feeds return < 3 articles)
+FALLBACK_QUERIES = {
     "Markets & Investing":
-        "stock market investing Federal Reserve interest rates bonds equities S&P 500",
+        "stock market investing Federal Reserve interest rates S&P 500",
     "Geopolitics & Macro":
-        "geopolitics trade tariffs global economy recession inflation currency",
+        "geopolitics trade tariffs global economy inflation currency",
     "Estate & Tax Planning":
-        "estate planning tax planning gift tax estate tax exemption wealth transfer trust",
+        "estate planning tax planning gift tax wealth transfer trust",
     "Selling a Business / M&A":
-        "selling a business M&A private equity acquisition EBITDA business valuation deal",
+        "selling business M&A private equity acquisition EBITDA deal",
     "Wealth Management & Family Office":
-        "wealth management family office ultra high net worth financial advisor fiduciary",
+        "wealth management family office ultra high net worth fiduciary",
 }
 
 
@@ -45,34 +80,57 @@ def strip_html(text):
     return re.sub(r'<[^>]+>', '', text).strip()
 
 
-def fetch_news(query, max_articles=6):
-    """
-    Fetch top articles from Google News RSS for a given search query.
-    Returns a list of dicts with keys: title, summary, link.
-    """
-    encoded = urllib.parse.quote(query)
-    url = f"https://news.google.com/rss/search?q={encoded}&hl=en-US&gl=US&ceid=US:en"
+def fetch_from_feed(url, max_articles=5):
+    """Fetch articles from a direct RSS feed URL."""
     try:
         feed = feedparser.parse(url)
         articles = []
         for entry in feed.entries[:max_articles]:
             title   = strip_html(entry.get('title', 'No title'))
-            summary = strip_html(entry.get('summary', ''))
+            summary = strip_html(entry.get('summary', entry.get('description', '')))
             summary = summary[:450] if summary else 'No summary available.'
             link    = entry.get('link', '')
             articles.append({"title": title, "summary": summary, "link": link})
         return articles
     except Exception as e:
-        print(f"  Warning: Could not fetch news for '{query}': {e}")
+        print(f"    ✗ Feed failed ({url}): {e}")
         return []
+
+
+def fetch_news_google(query, max_articles=6):
+    """Fallback: fetch from Google News RSS."""
+    encoded = urllib.parse.quote(query)
+    url = f"https://news.google.com/rss/search?q={encoded}&hl=en-US&gl=US&ceid=US:en"
+    return fetch_from_feed(url, max_articles)
 
 
 # ─── Compile All Articles ──────────────────────────────────────────────────────
 def compile_articles():
     all_articles = {}
-    for topic, query in TOPICS.items():
+    for topic, feeds in DIRECT_FEEDS.items():
         print(f"  → {topic}")
-        all_articles[topic] = fetch_news(query)
+        articles = []
+        seen = set()
+
+        for feed_url in feeds:
+            results = fetch_from_feed(feed_url, max_articles=3)
+            for a in results:
+                if a['title'] not in seen:
+                    seen.add(a['title'])
+                    articles.append(a)
+            if results:
+                print(f"    ✓ {len(results)} articles from {feed_url}")
+
+        # Fallback to Google News if we didn't get enough
+        if len(articles) < 3:
+            print(f"    ↩ Falling back to Google News for {topic}")
+            fallback = fetch_news_google(FALLBACK_QUERIES[topic])
+            for a in fallback:
+                if a['title'] not in seen:
+                    seen.add(a['title'])
+                    articles.append(a)
+
+        all_articles[topic] = articles[:8]  # cap at 8 per category
     return all_articles
 
 
@@ -100,6 +158,10 @@ Below are today's top articles across five key categories:
 
 Produce a professional morning briefing using EXACTLY the following structure. Use clean markdown formatting throughout.
 
+Every section that contains a summary, observation, or analysis must include TWO additional labeled lines after the main content:
+- **Parcion Relevance:** How this specifically affects Parcion's client base — business owners, UHNW families, and pre-liquidity prospects. What should Zack be doing or saying as a result?
+- **Plain English:** A single sentence that explains the core idea as if speaking to a smart but non-financial friend. No jargon.
+
 # Morning Briefing — {today}
 
 ---
@@ -107,12 +169,24 @@ Produce a professional morning briefing using EXACTLY the following structure. U
 ## Macro Themes & Notable Events
 [Write 2–3 focused paragraphs. What are the dominant themes across today's news? What is the overall market, macro, and geopolitical environment? What crosscurrents or confluences stand out? Reference specific stories — do not be generic. What should a UHNW advisor be watching closely this week?]
 
+**Parcion Relevance:** [How do today's macro themes specifically affect Parcion clients — portfolio positioning, deal timing, estate planning windows, client psychology? What's the one thing Zack should be bringing up in calls this week?]
+
+**Plain English:** [One sentence. What is actually happening in the world right now, in terms anyone could understand?]
+
 ---
 
 ## Secular Trends Worth Watching
 - [Trend 1: A longer-term structural trend visible in today's news — e.g., estate tax exemption trajectory, M&A cycle stage, rate regime implications, geopolitical realignment. Include the implication for UHNW clients.]
+  - **Parcion Relevance:** [Specific impact on Parcion's client base or practice.]
+  - **Plain English:** [One plain-language sentence.]
+
 - [Trend 2: Same format.]
+  - **Parcion Relevance:** [...]
+  - **Plain English:** [...]
+
 - [Trend 3: Same format.]
+  - **Parcion Relevance:** [...]
+  - **Plain English:** [...]
 
 ---
 
@@ -132,7 +206,9 @@ Produce a professional morning briefing using EXACTLY the following structure. U
 [List 4–5 stories in this format:]
 **[Full Headline] — [Source]**
 [2–3 sentence summary of what happened and why it matters to markets or the economy.]
-*Advisor angle:* [One specific sentence: how does this affect a UHNW client's portfolio, planning, or psychology?]
+**Parcion Relevance:** [One specific sentence: how does this affect a Parcion client's portfolio, planning, or psychology?]
+**Plain English:** [One sentence a non-finance person would immediately understand.]
+*Advisor angle:* [One specific sentence: what should Zack say or do as a result of this story?]
 
 ### Geopolitics & Macro
 
@@ -153,11 +229,13 @@ Produce a professional morning briefing using EXACTLY the following structure. U
 ---
 
 Non-negotiable rules:
-- Assume CFA-level financial literacy. No definitions, no hand-holding.
+- Assume CFA-level financial literacy for the main analysis. No definitions, no hand-holding in the core content.
+- The Plain English lines are the ONE exception — these must be genuinely simple. Write them as if texting a smart friend who doesn't follow markets.
 - Be specific. Reference actual numbers, company names, and events where available.
 - Every sentence must carry information. Zero filler phrases ("it is worth noting", "this highlights the importance of", etc.)
+- Parcion Relevance must always be specific to UHNW families and business-owner clients — never generic retail investor advice.
 - The actionable ideas must be directly tied to today's specific headlines — not generic best practices.
-- The advisor angles must be genuinely specific to UHNW families and business-owner clients, not retail investors."""
+- Plain English lines should be one sentence, under 30 words, zero jargon."""
 
 
 # ─── Call Claude API ───────────────────────────────────────────────────────────
@@ -166,7 +244,7 @@ def synthesize_with_claude(articles_by_topic):
     prompt  = build_prompt(articles_by_topic)
     message = client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=4096,
+        max_tokens=6000,
         messages=[{"role": "user", "content": prompt}]
     )
     return message.content[0].text
@@ -221,7 +299,7 @@ def send_email(briefing_md):
 {html_body}
 <div class="footer">
   Parcion Private Wealth &nbsp;·&nbsp; Morning Briefing &nbsp;·&nbsp; {today}<br>
-  Sources: Google News RSS &nbsp;·&nbsp; Synthesized by Claude Sonnet
+  Sources: Curated RSS Feeds &nbsp;·&nbsp; Synthesized by Claude Sonnet
 </div>
 </body>
 </html>"""
