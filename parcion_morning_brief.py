@@ -299,12 +299,17 @@ Five of the most significant news items or events from today. Each is one to two
 
 Only include subsections where there is fresh, genuinely relevant content. Skip any subsection with no strong material today — do not pad.
 
-For each subsection, list 1-3 items. Each item follows this exact format:
+For each subsection, list 1-3 items. Each item follows this exact format, with each field on its own separate line with a blank line between each:
 
 **Headline text** ([Link](URL))
+
 **Punchline:** One to two sentences max. The TL;DR.
+
 **Summary:** A brief paragraph. More depth than the punchline, but concise. Consider total email length.
+
 **Relevance:** One to two sentences on why advisors at a family office serving business owners should be reading this.
+
+Leave a blank line between each field. Leave two blank lines between separate items within the same subsection.
 
 ---
 
@@ -533,7 +538,8 @@ def build_html(briefing_md, today_str):
   }}
 
   p {{
-    margin-bottom: 12px;
+    margin-bottom: 6px;
+    margin-top: 0;
     color: #1a1a1a;
   }}
 
