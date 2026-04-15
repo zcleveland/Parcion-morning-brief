@@ -2,7 +2,8 @@
 """
 The Parcion Morning Brief
 Daily intelligence briefing for Parcion Private Wealth advisors.
-Fetches news via curated RSS feeds, synthesizes with Claude, sends via Gmail.
+Fetches news via curated RSS feeds, market data via Google Finance + FRED + CME FedWatch.
+Synthesizes with Claude, sends via Gmail.
 """
 
 import feedparser
@@ -10,18 +11,24 @@ import smtplib
 import os
 import urllib.parse
 import re
+import json
+import requests
 import markdown
+from bs4 import BeautifulSoup
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from datetime import datetime
+from datetime import datetime, date
 import anthropic
 
 
 # ─── Configuration ─────────────────────────────────────────────────────────────
 GMAIL_ADDRESS      = os.environ['GMAIL_ADDRESS']
 GMAIL_APP_PASSWORD = os.environ['GMAIL_APP_PASSWORD']
-WORK_EMAIL         = os.environ['WORK_EMAIL']   # single recipient during testing
+WORK_EMAIL         = os.environ['WORK_EMAIL']
 ANTHROPIC_API_KEY  = os.environ['ANTHROPIC_API_KEY']
+FRED_API_KEY       = os.environ['FRED_API_KEY']
+
+IS_MONDAY = datetime.now().weekday() == 0
 
 
 # ─── News Sources ──────────────────────────────────────────────────────────────
@@ -31,7 +38,6 @@ DIRECT_FEEDS = {
         "https://feeds.reuters.com/reuters/topNews",
         "https://feeds.bbci.co.uk/news/rss.xml",
         "https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml",
-        "https://www.wsj.com/xml/rss/3_7085.xml",
         "https://feeds.a.dj.com/rss/RSSMarketsMain.xml",
     ],
 
@@ -40,7 +46,6 @@ DIRECT_FEEDS = {
         "https://www.foreignaffairs.com/rss.xml",
         "https://www.cfr.org/rss/rss.xml",
         "https://www.aei.org/feed/",
-        "https://geopoliticalfutures.com/feed/",
     ],
 
     "developed_markets": [
@@ -56,16 +61,11 @@ DIRECT_FEEDS = {
         "https://www.cfr.org/rss/rss.xml",
     ],
 
-    "private_equity": [
+    "private_equity_credit": [
         "https://www.themiddlemarket.com/feed",
+        "https://www.institutionalinvestor.com/rss/articles.aspx",
         "https://axios.com/feeds/feed.rss",
         "https://pitchbook.com/rss/news",
-    ],
-
-    "private_credit": [
-        "https://www.institutionalinvestor.com/rss/articles.aspx",
-        "https://feeds.reuters.com/reuters/companyNews",
-        "https://www.themiddlemarket.com/feed",
     ],
 
     "venture_capital": [
@@ -80,14 +80,11 @@ DIRECT_FEEDS = {
         "https://www.connectcre.com/feed/",
     ],
 
-    "commodities": [
+    "commodities_metals": [
         "https://feeds.reuters.com/reuters/commoditiesNews",
-        "https://www.nasdaq.com/feed/rssoutbound?category=Commodities",
-    ],
-
-    "precious_metals": [
         "https://www.kitco.com/rss/kitconews.rss",
         "https://www.mining.com/feed/",
+        "https://www.nasdaq.com/feed/rssoutbound?category=Commodities",
     ],
 
     "estate_tax": [
@@ -115,40 +112,231 @@ DIRECT_FEEDS = {
         "https://www.irs.gov/rss-feeds/irs-news-releases",
         "https://www.sec.gov/rss/news/pressreleases.rss",
         "https://www.govtrack.us/events/events.rss?feeds=misc:allvotes",
-        # State feeds
-        "https://app.leg.wa.gov/RSS/BillSummary.aspx",          # Washington
-        "https://leginfo.legislature.ca.gov/faces/billSearchClient.xhtml",  # CA (fallback to GNews)
+        "https://app.leg.wa.gov/RSS/BillSummary.aspx",
     ],
 }
 
 FALLBACK_QUERIES = {
-    "notable_events":      "top news today business economy",
-    "geopolitics":         "geopolitics trade policy global economy",
-    "developed_markets":   "stock market S&P 500 Federal Reserve interest rates",
-    "international_markets": "international markets global economy foreign currency",
-    "private_equity":      "private equity buyout deal LBO acquisition",
-    "private_credit":      "private credit direct lending leveraged loans",
-    "venture_capital":     "venture capital startup funding VC",
-    "real_estate_pe":      "commercial real estate private equity CRE",
-    "commodities":         "commodities oil natural gas futures",
-    "precious_metals":     "gold silver precious metals prices",
-    "estate_tax":          "estate planning tax planning gift tax wealth transfer",
-    "ma_business_sale":    "mergers acquisitions business sale M&A deal",
-    "wealth_management":   "wealth management RIA family office fiduciary",
-    "legislation":         "tax legislation IRS SEC regulation estate planning law",
+    "notable_events":         "top news today business economy",
+    "geopolitics":            "geopolitics trade policy global economy",
+    "developed_markets":      "stock market S&P 500 Federal Reserve interest rates",
+    "international_markets":  "international markets global economy foreign currency",
+    "private_equity_credit":  "private equity credit direct lending buyout deal",
+    "venture_capital":        "venture capital startup funding VC",
+    "real_estate_pe":         "commercial real estate private equity CRE",
+    "commodities_metals":     "gold silver commodities oil precious metals",
+    "estate_tax":             "estate planning tax planning gift tax wealth transfer",
+    "ma_business_sale":       "mergers acquisitions business sale M&A deal",
+    "wealth_management":      "wealth management RIA family office fiduciary",
+    "legislation":            "tax legislation IRS SEC regulation estate planning law",
 }
 
 LEGISLATION_STATE_QUERIES = [
-    "Texas tax legislation business owners 2025",
-    "Washington state tax legislation wealth 2025",
-    "Oregon tax legislation estate planning 2025",
-    "California tax legislation business owners 2025",
-    "Arizona tax legislation wealth planning 2025",
-    "federal tax legislation estate IRS 2025",
+    "Texas tax legislation business owners 2026",
+    "Washington state tax legislation wealth 2026",
+    "Oregon tax legislation estate planning 2026",
+    "California tax legislation business owners 2026",
+    "Arizona tax legislation wealth planning 2026",
+    "federal tax legislation estate IRS 2026",
 ]
 
 
-# ─── Helpers ───────────────────────────────────────────────────────────────────
+# ─── Market Data ───────────────────────────────────────────────────────────────
+
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36"
+    )
+}
+
+# Yahoo Finance tickers: (display_name, yahoo_symbol)
+MARKET_TICKERS = [
+    ("S&P 500",       "^GSPC"),
+    ("Nasdaq",        "^IXIC"),
+    ("Dow Jones",     "^DJI"),
+    ("VIX",           "^VIX"),
+    ("10Y Treasury",  "^TNX"),
+    ("2Y Treasury",   "^IRX"),
+    ("Gold (spot)",   "GC=F"),
+    ("WTI Crude",     "CL=F"),
+    ("DXY (Dollar)",  "DX-Y.NYB"),
+]
+
+# FRED series: (display_name, series_id, format_fn)
+def pct(v):   return f"{v:.1f}%"
+def rate(v):  return f"{v:.2f}%"
+def idx(v):   return f"{v:.1f}"
+
+FRED_SERIES = [
+    ("CPI YoY",         "CPIAUCSL",    pct),
+    ("Core CPI YoY",    "CPILFESL",    pct),
+    ("PCE YoY",         "PCEPI",       pct),
+    ("Core PCE YoY",    "PCEPILFE",    pct),
+    ("Unemployment",    "UNRATE",      pct),
+    ("GDP Growth",      "A191RL1Q225SBEA", pct),
+    ("ISM Mfg PMI",     "MANEMP",      idx),
+    ("ISM Svcs PMI",    "NMFSL",       idx),
+    ("UMich Sentiment", "UMCSENT",     idx),
+    ("Fed Funds Rate",  "FEDFUNDS",    rate),
+]
+
+
+def fetch_yahoo_quote(symbol):
+    """Fetch current price and YTD change for a Yahoo Finance symbol."""
+    try:
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(symbol)}"
+        params = {
+            "interval": "1d",
+            "range":    "1y",
+        }
+        r = requests.get(url, params=params, headers=HEADERS, timeout=10)
+        data = r.json()
+        meta   = data["chart"]["result"][0]["meta"]
+        closes = data["chart"]["result"][0]["indicators"]["quote"][0]["close"]
+        timestamps = data["chart"]["result"][0]["timestamps"]
+
+        current_price = meta.get("regularMarketPrice") or meta.get("previousClose")
+
+        # Find first trading day of current year
+        current_year = datetime.now().year
+        jan_close = None
+        for ts, close in zip(timestamps, closes):
+            if close is None:
+                continue
+            dt = datetime.utcfromtimestamp(ts)
+            if dt.year == current_year:
+                jan_close = close
+                break
+
+        if jan_close and jan_close != 0:
+            ytd_pct = ((current_price - jan_close) / jan_close) * 100
+        else:
+            ytd_pct = None
+
+        return current_price, ytd_pct
+    except Exception as e:
+        print(f"    ✗ Yahoo quote failed ({symbol}): {e}")
+        return None, None
+
+
+def format_market_value(name, price):
+    """Format price based on asset type."""
+    if price is None:
+        return "N/A"
+    if "Treasury" in name or "VIX" in name or "DXY" in name:
+        return f"{price:.2f}"
+    if "Gold" in name:
+        return f"${price:,.2f}"
+    if "Crude" in name:
+        return f"${price:.2f}"
+    if price > 1000:
+        return f"{price:,.2f}"
+    return f"{price:.2f}"
+
+
+def fetch_market_data():
+    """Fetch YTD market data for all tickers."""
+    print("  → Fetching market data (Yahoo Finance)...")
+    results = []
+    for name, symbol in MARKET_TICKERS:
+        price, ytd = fetch_yahoo_quote(symbol)
+        results.append({
+            "name":  name,
+            "value": format_market_value(name, price),
+            "ytd":   ytd,
+        })
+        print(f"    {'✓' if price else '✗'} {name}: {format_market_value(name, price)}")
+    return results
+
+
+def fetch_fred_series(series_id):
+    """Fetch the most recent observation for a FRED series."""
+    try:
+        url = "https://api.stlouisfed.org/fred/series/observations"
+        params = {
+            "series_id":      series_id,
+            "api_key":        FRED_API_KEY,
+            "file_type":      "json",
+            "sort_order":     "desc",
+            "limit":          "2",
+            "observation_end": date.today().isoformat(),
+        }
+        r = requests.get(url, params=params, timeout=10)
+        obs = r.json()["observations"]
+        # Find most recent non-null value
+        for o in obs:
+            if o["value"] not in (".", ""):
+                val = float(o["value"])
+                dt  = datetime.strptime(o["date"], "%Y-%m-%d")
+                as_of = dt.strftime("%b %Y") if dt.day == 1 else dt.strftime("%b %d, %Y")
+                return val, as_of
+        return None, None
+    except Exception as e:
+        print(f"    ✗ FRED {series_id}: {e}")
+        return None, None
+
+
+def fetch_economic_data():
+    """Fetch all FRED economic indicators."""
+    print("  → Fetching economic data (FRED)...")
+    results = []
+    for name, series_id, fmt in FRED_SERIES:
+        val, as_of = fetch_fred_series(series_id)
+        formatted = fmt(val) if val is not None else "N/A"
+        results.append({"name": name, "value": formatted, "as_of": as_of or "N/A"})
+        print(f"    {'✓' if val else '✗'} {name}: {formatted}")
+    return results
+
+
+def fetch_fed_expectations():
+    """
+    Fetch Fed rate cut/hike probabilities from CME FedWatch.
+    Falls back to a reasonable estimate from the 2Y/10Y Treasury spread if scraping fails.
+    """
+    print("  → Fetching Fed expectations (CME FedWatch)...")
+    try:
+        url = "https://www.cmegroup.com/markets/interest-rates/cme-fedwatch-tool.html"
+        r = requests.get(url, headers=HEADERS, timeout=12)
+        soup = BeautifulSoup(r.text, "html.parser")
+
+        # CME renders probabilities via JavaScript — attempt to find JSON data island
+        scripts = soup.find_all("script")
+        for s in scripts:
+            txt = s.string or ""
+            if "meetingDate" in txt and "probability" in txt:
+                # Extract first meeting probability block
+                match = re.search(r'\{[^{}]*"meetingDate"[^{}]*\}', txt)
+                if match:
+                    block = json.loads(match.group())
+                    meeting = block.get("meetingDate", "Next Meeting")
+                    hold    = block.get("holdPct",   None)
+                    cut25   = block.get("cut25Pct",  None)
+                    cut50   = block.get("cut50Pct",  None)
+                    hike25  = block.get("hike25Pct", None)
+                    yr_end  = block.get("yearEndRate", None)
+                    cuts    = block.get("cutsExpected", None)
+                    return {
+                        "meeting": meeting,
+                        "hold":    hold,
+                        "cut25":   cut25,
+                        "cut50":   cut50,
+                        "hike25":  hike25,
+                        "yr_end":  yr_end,
+                        "cuts":    cuts,
+                        "source":  "CME FedWatch",
+                    }
+
+        raise ValueError("Probability data not found in page source")
+
+    except Exception as e:
+        print(f"    ✗ CME FedWatch scrape failed: {e}. Using fallback.")
+        # Graceful fallback: return None so HTML block is omitted cleanly
+        return None
+
+
+# ─── News Helpers ──────────────────────────────────────────────────────────────
 def strip_html(text):
     return re.sub(r'<[^>]+>', '', text).strip()
 
@@ -199,10 +387,10 @@ def compile_articles():
                     seen.add(a['title'])
                     articles.append(a)
 
-        all_articles[topic] = articles[:6]
+        all_articles[topic] = articles[:5]
 
-    # Extra legislation pass: state-specific Google News queries
-    print("  → legislation (state + federal supplements)")
+    # State legislation supplement
+    print("  → legislation (state supplements)")
     leg_seen = set(a['title'] for a in all_articles.get('legislation', []))
     for q in LEGISLATION_STATE_QUERIES:
         results = fetch_news_google(q, max_articles=2)
@@ -210,7 +398,7 @@ def compile_articles():
             if a['title'] not in leg_seen:
                 leg_seen.add(a['title'])
                 all_articles['legislation'].append(a)
-    all_articles['legislation'] = all_articles['legislation'][:8]
+    all_articles['legislation'] = all_articles['legislation'][:6]
 
     return all_articles
 
@@ -219,202 +407,170 @@ def compile_articles():
 def build_prompt(articles_by_topic):
     today = datetime.now().strftime('%A, %B %d, %Y')
 
-    # Build article reference block
     article_text = ""
     counter = 1
     for topic, articles in articles_by_topic.items():
-        article_text += f"\n\n### SOURCE CATEGORY: {topic.upper().replace('_', ' ')}\n"
+        article_text += f"\n\n### SOURCE: {topic.upper().replace('_', ' ')}\n"
         if not articles:
             article_text += "_No articles retrieved._\n"
             continue
         for a in articles:
             article_text += (
                 f"[ART-{counter:03d}] {a['title']}\n"
-                f"   Summary: {a['summary']}\n"
+                f"   {a['summary']}\n"
                 f"   URL: {a['link']}\n\n"
             )
             counter += 1
 
-    return f"""You are the editorial intelligence behind "The Parcion Morning Brief" — a daily internal briefing sent to the 8 advisors at Parcion Private Wealth, a nationally recognized independent private family office serving business owners and UHNW families through pre-liquidity, liquidity, and post-liquidity events.
+    monday_section = ""
+    if IS_MONDAY:
+        monday_section = """
+---
+
+## Growing Your Network
+
+3-4 short, punchy ideas for relationship-building this week. Audience is family office advisors — relationship builders, not product salespeople. COIs include CPAs, estate attorneys, M&A lawyers, and investment bankers. Ideas should feel natural and human, not scripted. If a creative AI-assisted outreach angle is genuinely useful, include it.
+
+- [Idea 1]
+- [Idea 2]
+- [Idea 3]
+- [Idea 4 if truly warranted]
+
+"""
+
+    return f"""You are the editorial intelligence behind "The Parcion Morning Brief" — a daily internal briefing for the 8 advisors at Parcion Private Wealth, a nationally recognized independent private family office serving business owners and UHNW families through pre-liquidity, liquidity, and post-liquidity wealth events.
 
 Today is {today}.
 
-AUDIENCE: Experienced wealth advisors. Assume strong financial literacy. Do not define basic terms. Do write clearly enough that a newer advisor can follow along.
+AUDIENCE: Experienced wealth advisors. Assume strong financial literacy. Accessible enough for a newer advisor.
 
-GOAL: A focused, high-signal briefing readable in 5-7 minutes over coffee. Every section should earn its place. Skip any section or subsection entirely if there is no fresh, relevant content — do not pad or invent.
+GOAL: A tight, high-signal briefing readable in 5-7 minutes over coffee. Target 700 words of editorial content maximum. Every section earns its place. When in doubt, cut it. A short sharp brief beats a complete one.
 
-VOICE RULES (non-negotiable):
-- Tone: calm, confident, analytically precise. Think CIO memo, not newsletter.
-- Do NOT refer to "Zack" or any individual by name. Use "advisors may want to consider..." or "this is worth raising with clients who..."
-- No investment recommendations. Observations on asset classes, macro conditions, and sectors only.
-- No specific stock or fund picks.
-- No language implying guaranteed outcomes.
-- No alarming language: never use "crash," "collapse," or "unprecedented."
-- Anchor volatility or uncertainty in historical context when relevant.
+DEDUPLICATION RULE: If two or more articles cover the same story or angle, pick the single strongest one and drop the rest entirely. Do not cover the same topic from multiple angles across the brief.
+
+VOICE (non-negotiable):
+- CIO memo tone. Calm, confident, analytically precise.
+- Never refer to any advisor by name. Use "advisors may want to consider..." or "worth raising with clients who..."
+- No investment recommendations. Observations on asset classes, macro, and sectors only. No single stock or fund picks.
+- No alarming language: never "crash," "collapse," or "unprecedented." Anchor uncertainty in historical context.
 - Approved framing for guarded optimism: "constructive but cautious."
-- When market conditions are bifurcated: "the K economy" is acceptable shorthand.
+- Bifurcated economy shorthand: "the K economy."
 - Use "wealth event" or "liquidity event" — not just "transaction."
 - Use "families" or "business owners" — not "high-net-worth individuals" or "HNWIs."
-- No filler phrases: "it is worth noting," "this highlights the importance of," "in today's complex landscape," etc.
+- No filler: "it is worth noting," "this highlights the importance of," "in today's complex landscape," etc.
 - No em dashes. Use commas or short sentence breaks instead.
 - Oxford comma always.
-- Links appear ONCE per article. Do not repeat the same link in multiple sections.
-- Every article link must be formatted as markdown: [Link](URL) — use the word "Link" as the anchor text, not the full URL.
+- Links appear ONCE per article. Format: [Link](URL) using the word "Link" as anchor text.
+- No guaranteed outcomes language.
 
-CONTENT RULES:
-- Parcion relevance = specific to pre/post-liquidity business owners and UHNW families. Never generic retail investor framing.
-- Conversation starters must be genuinely timely and tied to today's news. Only include ones that would be natural to act on today. If nothing qualifies, omit the section.
-- Optional Reads should feel substantive, not like filler. Free access only. Can be up to 3 years old if still relevant.
+FORMAT RULES:
+- Do NOT include a title or date at the top — the email header handles this.
+- Each Sector Review item: headline on its own line, then Punchline on its own line, then Summary on its own line, then Relevance on its own line. Blank line between each field. Two blank lines between separate items.
+- Conversation Starters: each sub-bullet on its own line with a blank line between each.
+- Summary field: 3 sentences maximum, hard cap.
+- Notable Events: informative one-liners — enough context that the reader doesn't need to click. Not just a headline rewrite.
 
 ---
 
-Here are today's source articles by category:
-
+Here are today's source articles:
 {article_text}
 
 ---
 
-Now produce the briefing using EXACTLY this structure. Use clean markdown. Do not include section headers that have no content.
-
----
-
-# The Parcion Morning Brief
-### {today}
+Produce the briefing using EXACTLY this structure. Skip any section or subsection with no strong material — do not pad.
 
 ---
 
 ## Notable Events
 
-Five of the most significant news items or events from today. Each is one to two punchy sentences with a [Link](URL) at the end. CIO tone. Analytical, not alarmist. Focus on what matters for business owners, investors, and families with significant wealth.
+Five one-liners. Each tells the reader what happened and why it matters in a single sentence. CIO tone. Link at the end of each.
 
-- [Event 1 — one to two sentences.] ([Link](URL))
-- [Event 2] ([Link](URL))
-- [Event 3] ([Link](URL))
-- [Event 4] ([Link](URL))
-- [Event 5] ([Link](URL))
+- [Full informative sentence that stands alone without clicking.] ([Link](URL))
+- [Same format]
+- [Same format]
+- [Same format]
+- [Same format]
 
 ---
 
 ## Sector Review
 
-Only include subsections where there is fresh, genuinely relevant content. Skip any subsection with no strong material today — do not pad.
+Only include subsections with fresh, genuinely relevant content. Hard cap: 1 item per subsection. Skip any subsection with nothing strong today.
 
-For each subsection, list 1-3 items. Each item follows this exact format, with each field on its own separate line with a blank line between each:
+For each item:
 
-**Headline text** ([Link](URL))
+**[Headline]** ([Link](URL))
 
-**Punchline:** One to two sentences max. The TL;DR.
+**Punchline:** [1-2 sentences. TL;DR.]
 
-**Summary:** A brief paragraph. More depth than the punchline, but concise. Consider total email length.
+**Summary:** [3 sentences max. More depth than punchline, concise.]
 
-**Relevance:** One to two sentences on why advisors at a family office serving business owners should be reading this.
-
-Leave a blank line between each field. Leave two blank lines between separate items within the same subsection.
+**Relevance:** [1-2 sentences. Why should a family office advisor serving business owners care about this today.]
 
 ---
 
 ### Geopolitics
 
-[Items if available]
-
 ### Developed Markets
-
-[Items if available]
 
 ### International Markets
 
-[Items if available]
-
-### Private Equity
-
-[Items if available]
-
-### Private Credit
-
-[Items if available]
+### Private Equity and Credit
 
 ### Venture Capital
 
-[Items if available]
-
 ### Real Estate
 
-[Items if available]
-
-### Commodities
-
-[Items if available]
-
-### Precious Metals
-
-[Items if available]
+### Commodities and Metals
 
 ### Estate and Tax Planning
 
-[Items if available]
-
 ### M&A and Business Sales
 
-[Items if available]
-
 ### Wealth Management and Family Office
-
-[Items if available]
 
 ---
 
 ## Legislation Updates
 
-Recent or newly issued legislation, regulatory guidance, or enforcement updates relevant to investing, estate planning, or taxes from a UHNW or private business owner perspective. Cover federal and the following states where relevant: Texas, Washington, Oregon, California, Arizona.
+Federal and state (TX, WA, OR, CA, AZ) legislation, regulatory guidance, IRS notices, SEC rules, enforcement updates. UHNW and business owner lens only. Omit entirely if nothing material today.
 
-If nothing material has surfaced today, omit this section entirely.
-
-For each item:
 **[Jurisdiction — Topic]** ([Link](URL))
-One to two sentences on what changed or was proposed, and why it matters for advisors working with business owners or UHNW families.
+[1-2 sentences: what changed and why it matters.]
 
 ---
 
 ## Conversation Starters
 
-Only include this section if today's news surfaced 2-3 genuinely strong, timely angles worth raising with a client or prospect. Do not force this. If the material is not there, omit the section.
+Only include if today's news produced 2-3 genuinely strong, timely angles. If the material isn't there, omit entirely. Do not force this section.
 
-For each:
-**[Topic — 4 words or less]**
-- **The angle:** One sentence an advisor could naturally say to open the conversation. Direct, not salesy.
-- **Why now:** What in today's news makes this timely. Include [Link](URL).
-- **Who it fits:** What type of client or prospect — be specific about their situation.
-- **Where it goes:** The planning idea, technique, or next step if they engage. Name it specifically.
+**[Topic — 4 words max]**
 
----
+**Angle:** [One natural sentence an advisor could say to open the conversation.]
 
-## Growing Your Network
+**Why now:** [What in today's news makes this timely.] ([Link](URL))
 
-3-4 quick bulleted ideas for advisors to grow their book through COI relationships and prospect outreach. COIs include CPAs, estate attorneys, M&A lawyers, and investment bankers — people adjacent to large business owners and UHNW families. If a creative AI-assisted outreach idea surfaces, include it.
+**Who:** [Specific client type and situation.]
 
-- [Idea 1]
-- [Idea 2]
-- [Idea 3]
-- [Idea 4 if warranted]
+**Where it goes:** [Named technique or next step: GRAT, IDGT, SLAT, DAF, installment sale, private credit allocation, etc.]
 
 ---
-
+{monday_section}
 ## Optional Reads
 
-2-3 longer-form reads — white papers, research reports, or substantive opinion pieces — for advisors who want to go deeper. Free access only. Can be up to 3 years old if still relevant to today's themes.
+1-2 only. Substantive long-form reads — white papers, research, opinion pieces. Free access only. Up to 3 years old if still relevant. Skip if nothing qualifies.
 
 **[Title]** ([Link](URL))
-One sentence on what it covers and why it is worth the time.
+[2 sentences max: what it covers and why worth the time.]
 
 ---"""
 
 
-# ─── Call Claude API (with streaming to avoid timeout) ─────────────────────────
+# ─── Claude API Call ───────────────────────────────────────────────────────────
 def synthesize_with_claude(articles_by_topic):
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
     prompt = build_prompt(articles_by_topic)
-
-    print(f"      Prompt length: {len(prompt):,} characters")
+    print(f"      Prompt: {len(prompt):,} chars")
 
     full_text = ""
     with client.messages.stream(
@@ -428,8 +584,136 @@ def synthesize_with_claude(articles_by_topic):
     return full_text
 
 
-# ─── Format & Send Email ───────────────────────────────────────────────────────
-def build_html(briefing_md, today_str):
+# ─── Market Data HTML Block ────────────────────────────────────────────────────
+def build_market_html(market_data, econ_data, fed_data):
+    """Build the full Markets & Economic Snapshot HTML block."""
+
+    def ytd_cell(ytd):
+        if ytd is None:
+            return '<td style="padding:6px 10px;text-align:right;color:#888;font-size:12px;">N/A</td>'
+        color = "#2a7a3b" if ytd >= 0 else "#c0392b"
+        sign  = "+" if ytd >= 0 else ""
+        return f'<td style="padding:6px 10px;text-align:right;color:{color};font-weight:700;font-size:13px;">{sign}{ytd:.1f}%</td>'
+
+    # Market rows
+    market_rows = ""
+    for i, m in enumerate(market_data):
+        bg = "#ffffff" if i % 2 == 0 else "#f7f7f4"
+        market_rows += f"""
+        <tr style="background:{bg};">
+          <td style="padding:6px 10px;color:#1a1a1a;font-size:13px;">{m['name']}</td>
+          <td style="padding:6px 10px;text-align:right;color:#1a1a1a;font-size:13px;">{m['value']}</td>
+          {ytd_cell(m['ytd'])}
+        </tr>"""
+
+    # Economic rows
+    econ_rows = ""
+    for i, e in enumerate(econ_data):
+        bg = "#ffffff" if i % 2 == 0 else "#f7f7f4"
+        econ_rows += f"""
+        <tr style="background:{bg};">
+          <td style="padding:6px 10px;color:#1a1a1a;font-size:13px;">{e['name']}</td>
+          <td style="padding:6px 10px;text-align:right;color:#1a1a1a;font-size:13px;font-weight:{'700' if 'Fed' in e['name'] else '400'};">{e['value']}</td>
+          <td style="padding:6px 10px;text-align:right;color:#888;font-size:11px;">{e['as_of']}</td>
+        </tr>"""
+
+    # Fed expectations block
+    if fed_data:
+        hold_pct  = fed_data.get("hold",  "—")
+        cut25_pct = fed_data.get("cut25", "—")
+        cut50_pct = fed_data.get("cut50", "—")
+        hike25    = fed_data.get("hike25","—")
+        yr_end    = fed_data.get("yr_end", "N/A")
+        cuts      = fed_data.get("cuts",  "N/A")
+        meeting   = fed_data.get("meeting","Next Meeting")
+        source    = fed_data.get("source", "CME FedWatch")
+
+        # Determine which tile to accent (highest probability)
+        probs = {}
+        for label, val in [("hold", hold_pct), ("cut25", cut25_pct), ("cut50", cut50_pct), ("hike25", hike25)]:
+            try:
+                probs[label] = float(str(val).replace("%",""))
+            except:
+                probs[label] = 0
+        top = max(probs, key=probs.get) if probs else None
+
+        def tile(label, display, val, color):
+            accent = f"border-top:2px solid {color}; background:#f0f7f4;" if label == top else "background:#f7f7f4;"
+            txt_color = color if label == top else "#1a1a1a"
+            lbl_color = color if label == top else "#888"
+            return f"""
+            <div style="flex:1;padding:10px 8px;text-align:center;{accent}">
+              <div style="font-family:'Century Gothic',Arial,sans-serif;font-size:9px;letter-spacing:0.10em;text-transform:uppercase;color:{lbl_color};margin-bottom:4px;">{display}</div>
+              <div style="font-size:20px;font-weight:700;color:{txt_color};font-family:'Century Gothic',Arial,sans-serif;">{val if val != '—' else '—'}</div>
+            </div>"""
+
+        tiles = (
+            tile("hold",   "Hold",      f"{hold_pct}%" if hold_pct != '—' else '—',  "#555555") +
+            tile("cut25",  "Cut 25bps", f"{cut25_pct}%" if cut25_pct != '—' else '—', "#2a7a3b") +
+            tile("cut50",  "Cut 50bps", f"{cut50_pct}%" if cut50_pct != '—' else '—', "#1E6685") +
+            tile("hike25", "Hike 25bps",f"{hike25}%" if hike25 != '—' else '—',       "#c0392b")
+        )
+
+        fed_block = f"""
+      <div style="border-top:1px solid #e8e5dd;padding-top:14px;margin-top:4px;">
+        <div style="font-family:'Century Gothic',Arial,sans-serif;font-size:9px;font-weight:700;letter-spacing:0.16em;text-transform:uppercase;color:#B99A38;margin-bottom:8px;">Fed Expectations — {source}</div>
+        <div style="font-family:'Century Gothic',Arial,sans-serif;font-size:10px;color:#555;margin-bottom:8px;">Next Meeting: <strong style="color:#00141C;">{meeting}</strong></div>
+        <div style="display:flex;gap:8px;margin-bottom:10px;">{tiles}</div>
+        <div style="background:#00141C;padding:10px 14px;display:flex;align-items:center;justify-content:space-between;">
+          <div style="font-family:'Century Gothic',Arial,sans-serif;font-size:10px;color:#7a9aa8;letter-spacing:0.06em;">Year-End Implied Rate</div>
+          <div style="display:flex;align-items:baseline;gap:10px;">
+            <span style="font-family:'Century Gothic',Arial,sans-serif;font-size:16px;font-weight:700;color:#f0ece2;">{yr_end}</span>
+            <span style="font-family:'Century Gothic',Arial,sans-serif;font-size:10px;color:#B99A38;letter-spacing:0.06em;">{cuts} cuts priced in</span>
+          </div>
+        </div>
+        <div style="font-size:10px;color:#999;margin-top:6px;font-style:italic;font-family:'Century Gothic',Arial,sans-serif;">Source: {source}. Probabilities reflect Fed Funds futures as of prior close.</div>
+      </div>"""
+    else:
+        fed_block = ""
+
+    return f"""
+  <div style="margin-bottom:28px;">
+    <div style="font-family:'Century Gothic',Arial,sans-serif;font-size:10px;font-weight:700;letter-spacing:0.18em;text-transform:uppercase;color:#00141C;border-bottom:1px solid #B99A38;padding-bottom:6px;margin-bottom:16px;">Markets &amp; Economic Snapshot</div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
+
+      <div>
+        <div style="font-family:'Century Gothic',Arial,sans-serif;font-size:9px;font-weight:700;letter-spacing:0.16em;text-transform:uppercase;color:#B99A38;margin-bottom:8px;">Markets — YTD Change</div>
+        <table style="width:100%;border-collapse:collapse;">
+          <thead>
+            <tr style="background:#00141C;">
+              <th style="text-align:left;padding:7px 10px;font-family:'Century Gothic',Arial,sans-serif;font-size:9px;font-weight:700;letter-spacing:0.10em;text-transform:uppercase;color:#B99A38;">Index / Asset</th>
+              <th style="text-align:right;padding:7px 10px;font-family:'Century Gothic',Arial,sans-serif;font-size:9px;font-weight:700;letter-spacing:0.10em;text-transform:uppercase;color:#B99A38;">Value</th>
+              <th style="text-align:right;padding:7px 10px;font-family:'Century Gothic',Arial,sans-serif;font-size:9px;font-weight:700;letter-spacing:0.10em;text-transform:uppercase;color:#B99A38;">YTD</th>
+            </tr>
+          </thead>
+          <tbody>{market_rows}</tbody>
+        </table>
+        <div style="font-size:10px;color:#999;margin-top:6px;font-style:italic;font-family:'Century Gothic',Arial,sans-serif;">Source: Yahoo Finance. Prior trading day close.</div>
+      </div>
+
+      <div>
+        <div style="font-family:'Century Gothic',Arial,sans-serif;font-size:9px;font-weight:700;letter-spacing:0.16em;text-transform:uppercase;color:#B99A38;margin-bottom:8px;">Economic Readings — Latest</div>
+        <table style="width:100%;border-collapse:collapse;">
+          <thead>
+            <tr style="background:#00141C;">
+              <th style="text-align:left;padding:7px 10px;font-family:'Century Gothic',Arial,sans-serif;font-size:9px;font-weight:700;letter-spacing:0.10em;text-transform:uppercase;color:#B99A38;">Indicator</th>
+              <th style="text-align:right;padding:7px 10px;font-family:'Century Gothic',Arial,sans-serif;font-size:9px;font-weight:700;letter-spacing:0.10em;text-transform:uppercase;color:#B99A38;">Reading</th>
+              <th style="text-align:right;padding:7px 10px;font-family:'Century Gothic',Arial,sans-serif;font-size:9px;font-weight:700;letter-spacing:0.10em;text-transform:uppercase;color:#B99A38;">As of</th>
+            </tr>
+          </thead>
+          <tbody>{econ_rows}</tbody>
+        </table>
+        <div style="font-size:10px;color:#999;margin-top:6px;font-style:italic;font-family:'Century Gothic',Arial,sans-serif;">Source: FRED (St. Louis Fed). Most recent release.</div>
+      </div>
+
+    </div>
+    {fed_block}
+  </div>"""
+
+
+# ─── Email Builder ─────────────────────────────────────────────────────────────
+def build_html(briefing_md, market_html, today_str):
     html_body = markdown.markdown(briefing_md, extensions=['extra'])
 
     return f"""<!DOCTYPE html>
@@ -438,7 +722,6 @@ def build_html(briefing_md, today_str):
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
-  /* ── Reset ── */
   * {{ box-sizing: border-box; margin: 0; padding: 0; }}
 
   body {{
@@ -450,7 +733,6 @@ def build_html(briefing_md, today_str):
     padding: 32px 16px;
   }}
 
-  /* ── Outer wrapper ── */
   .wrapper {{
     max-width: 660px;
     margin: 0 auto;
@@ -461,50 +743,58 @@ def build_html(briefing_md, today_str):
   /* ── Header ── */
   .header {{
     background-color: #00141C;
-    padding: 28px 36px 24px;
-    text-align: left;
+    padding: 32px 40px 28px;
   }}
 
-  .header-wordmark {{
-    font-family: 'Century Gothic', 'Gill Sans', 'Trebuchet MS', Arial, sans-serif;
-    font-size: 22px;
-    font-weight: 300;
-    letter-spacing: 0.22em;
+  .header-brand {{
+    font-family: 'Century Gothic', 'Gill Sans', Arial, sans-serif;
+    font-size: 11px;
+    font-weight: 400;
+    letter-spacing: 0.30em;
     color: #B99A38;
     text-transform: uppercase;
     display: block;
+    margin-bottom: 6px;
   }}
 
-  .header-sub {{
-    font-family: 'Century Gothic', 'Gill Sans', Arial, sans-serif;
-    font-size: 10px;
-    letter-spacing: 0.18em;
-    color: #7a8f96;
-    text-transform: uppercase;
-    margin-top: 4px;
+  .header-title {{
+    font-family: 'Palatino Linotype', Palatino, 'Book Antiqua', Georgia, serif;
+    font-size: 32px;
+    font-weight: 400;
+    color: #f0ece2;
+    letter-spacing: 0.04em;
+    font-style: italic;
+    line-height: 1.1;
+    display: block;
+  }}
+
+  .header-rule {{
+    width: 48px;
+    height: 1px;
+    background: #B99A38;
+    margin: 14px 0 12px;
     display: block;
   }}
 
   .header-date {{
-    font-family: 'Palatino Linotype', Palatino, Georgia, serif;
-    font-size: 12px;
-    color: #4a6470;
-    margin-top: 10px;
+    font-family: 'Century Gothic', Arial, sans-serif;
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    color: #4a6a74;
+    text-transform: uppercase;
     display: block;
-    font-style: italic;
   }}
 
   /* ── Content ── */
   .content {{
-    padding: 32px 36px 40px;
+    padding: 32px 40px 40px;
   }}
 
-  /* ── Typography ── */
   h1 {{
-    font-family: 'Century Gothic', 'Gill Sans', Arial, sans-serif;
-    font-size: 13px;
+    font-family: 'Century Gothic', Arial, sans-serif;
+    font-size: 10px;
     font-weight: 700;
-    letter-spacing: 0.14em;
+    letter-spacing: 0.18em;
     text-transform: uppercase;
     color: #00141C;
     margin-top: 36px;
@@ -514,33 +804,35 @@ def build_html(briefing_md, today_str):
   }}
 
   h2 {{
-    font-family: 'Century Gothic', 'Gill Sans', Arial, sans-serif;
-    font-size: 12px;
+    font-family: 'Century Gothic', Arial, sans-serif;
+    font-size: 10px;
     font-weight: 700;
-    letter-spacing: 0.12em;
+    letter-spacing: 0.18em;
     text-transform: uppercase;
     color: #00141C;
-    margin-top: 28px;
-    margin-bottom: 10px;
-    padding-bottom: 4px;
-    border-bottom: 1px solid #e0ddd5;
+    margin-top: 36px;
+    margin-bottom: 14px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid #B99A38;
   }}
 
   h3 {{
-    font-family: 'Century Gothic', 'Gill Sans', Arial, sans-serif;
-    font-size: 11px;
+    font-family: 'Century Gothic', Arial, sans-serif;
+    font-size: 9px;
     font-weight: 700;
-    letter-spacing: 0.10em;
+    letter-spacing: 0.14em;
     text-transform: uppercase;
     color: #B99A38;
-    margin-top: 22px;
-    margin-bottom: 8px;
+    margin-top: 24px;
+    margin-bottom: 10px;
   }}
 
   p {{
     margin-bottom: 6px;
     margin-top: 0;
     color: #1a1a1a;
+    font-size: 14px;
+    line-height: 1.7;
   }}
 
   ul, ol {{
@@ -549,8 +841,10 @@ def build_html(briefing_md, today_str):
   }}
 
   li {{
-    margin-bottom: 9px;
+    margin-bottom: 10px;
     color: #1a1a1a;
+    font-size: 14px;
+    line-height: 1.7;
   }}
 
   strong {{
@@ -569,18 +863,12 @@ def build_html(briefing_md, today_str):
     border-bottom: 1px solid #c5dde8;
   }}
 
-  a:hover {{
-    color: #B99A38;
-    border-bottom-color: #B99A38;
-  }}
-
   hr {{
     border: none;
     border-top: 1px solid #e8e5dd;
-    margin: 28px 0;
+    margin: 24px 0;
   }}
 
-  /* ── Article items ── */
   blockquote {{
     border-left: 3px solid #B99A38;
     margin: 12px 0;
@@ -592,8 +880,7 @@ def build_html(briefing_md, today_str):
   /* ── Footer ── */
   .footer {{
     background-color: #00141C;
-    padding: 18px 36px;
-    text-align: left;
+    padding: 16px 40px;
   }}
 
   .footer p {{
@@ -616,12 +903,14 @@ def build_html(briefing_md, today_str):
   <div class="wrapper">
 
     <div class="header">
-      <span class="header-wordmark">Parcion</span>
-      <span class="header-sub">Private Wealth &nbsp;·&nbsp; Morning Brief</span>
+      <span class="header-brand">Parcion Private Wealth</span>
+      <span class="header-title">The Morning Brief</span>
+      <span class="header-rule"></span>
       <span class="header-date">{today_str}</span>
     </div>
 
     <div class="content">
+      {market_html}
       {html_body}
     </div>
 
@@ -635,11 +924,10 @@ def build_html(briefing_md, today_str):
 </html>"""
 
 
-def send_email(briefing_md):
+def send_email(briefing_md, market_html):
     today_str = datetime.now().strftime('%A, %B %d, %Y')
     subject   = f"The Parcion Morning Brief — {datetime.now().strftime('%B %d, %Y')}"
-
-    html = build_html(briefing_md, today_str)
+    html      = build_html(briefing_md, market_html, today_str)
 
     msg = MIMEMultipart('alternative')
     msg['Subject'] = subject
@@ -661,19 +949,27 @@ def main():
     print(f"\n{'─' * 54}")
     print(f"  The Parcion Morning Brief")
     print(f"  {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}")
+    print(f"  {'Monday edition' if IS_MONDAY else datetime.now().strftime('%A')}")
     print(f"{'─' * 54}")
 
-    print("\n[1/3] Fetching news articles...")
+    print("\n[1/4] Fetching market & economic data...")
+    market_data = fetch_market_data()
+    econ_data   = fetch_economic_data()
+    fed_data    = fetch_fed_expectations()
+    market_html = build_market_html(market_data, econ_data, fed_data)
+    print("      Market data ready")
+
+    print("\n[2/4] Fetching news articles...")
     articles = compile_articles()
     total = sum(len(v) for v in articles.values())
     print(f"      {total} articles across {len(articles)} categories")
 
-    print("\n[2/3] Synthesizing with Claude...")
+    print("\n[3/4] Synthesizing with Claude...")
     briefing = synthesize_with_claude(articles)
     print(f"      Briefing ready ({len(briefing):,} characters)")
 
-    print("\n[3/3] Sending email...")
-    send_email(briefing)
+    print("\n[4/4] Sending email...")
+    send_email(briefing, market_html)
 
     print("\n  Done.\n")
 
