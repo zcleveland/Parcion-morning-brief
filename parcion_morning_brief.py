@@ -501,7 +501,9 @@ FORMAT RULES:
 - No Summary field anywhere. Only Punchline and Relevance.
 - Punchline: 2 sentences max. Hard cap.
 - Relevance: 2 short sentences max. Hard cap.
-- Blank line between Punchline and Relevance. Two blank lines between separate items.
+- Blank line between Punchline and Relevance within an item.
+- Separate each item within a section with a --- divider.
+- Separate each Conversation Starter with a --- divider.
 - Conversation Starters: each sub-bullet on its own line with a blank line between each field.
 
 ---
@@ -821,47 +823,47 @@ def build_html(briefing_md, market_html, today_str):
 
   h1 {{
     font-family: 'Century Gothic', Arial, sans-serif;
-    font-size: 10px;
+    font-size: 14px;
     font-weight: 700;
     letter-spacing: 0.18em;
     text-transform: uppercase;
     color: #00141C;
     margin-top: 36px;
-    margin-bottom: 14px;
-    padding-bottom: 6px;
-    border-bottom: 1px solid #B99A38;
+    margin-bottom: 16px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid #B99A38;
   }}
 
   h2 {{
     font-family: 'Century Gothic', Arial, sans-serif;
-    font-size: 10px;
+    font-size: 14px;
     font-weight: 700;
     letter-spacing: 0.18em;
     text-transform: uppercase;
     color: #00141C;
     margin-top: 36px;
-    margin-bottom: 14px;
-    padding-bottom: 6px;
-    border-bottom: 1px solid #B99A38;
+    margin-bottom: 16px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid #B99A38;
   }}
 
   h3 {{
     font-family: 'Century Gothic', Arial, sans-serif;
-    font-size: 9px;
+    font-size: 13px;
     font-weight: 700;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: #B99A38;
-    margin-top: 24px;
+    letter-spacing: 0.04em;
+    text-transform: none;
+    color: #00141C;
+    margin-top: 0;
     margin-bottom: 10px;
   }}
 
   p {{
-    margin-bottom: 6px;
+    margin-bottom: 8px;
     margin-top: 0;
     color: #1a1a1a;
-    font-size: 14px;
-    line-height: 1.7;
+    font-size: 15px;
+    line-height: 1.75;
   }}
 
   ul, ol {{
@@ -872,8 +874,8 @@ def build_html(briefing_md, market_html, today_str):
   li {{
     margin-bottom: 10px;
     color: #1a1a1a;
-    font-size: 14px;
-    line-height: 1.7;
+    font-size: 15px;
+    line-height: 1.75;
   }}
 
   strong {{
@@ -895,27 +897,21 @@ def build_html(briefing_md, market_html, today_str):
   hr {{
     border: none;
     border-top: 1px solid #e8e5dd;
-    margin: 20px 0;
+    margin: 22px 0;
   }}
 
-  /* Section topic header — bold lead line gets clear visual separation */
+  /* Article/starter topic header — bold lead-in, no gold bar */
   p > strong:only-child {{
     display: block;
-    margin-top: 28px;
-    margin-bottom: 2px;
-    padding-top: 18px;
-    border-top: 2px solid #B99A38;
-    font-size: 14px;
     font-family: 'Century Gothic', Arial, sans-serif;
-    letter-spacing: 0.02em;
-  }}
-
-  /* First topic in a section should not get a top border */
-  h2 + p > strong:only-child,
-  h3 + p > strong:only-child {{
-    border-top: none;
-    margin-top: 8px;
+    font-size: 13px;
+    font-weight: 700;
+    color: #00141C;
+    margin-top: 0;
+    margin-bottom: 2px;
     padding-top: 0;
+    border-top: none;
+    letter-spacing: 0.02em;
   }}
 
   blockquote {{
