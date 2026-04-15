@@ -39,94 +39,53 @@ DIRECT_FEEDS = {
         "https://feeds.a.dj.com/rss/RSSMarketsMain.xml",
     ],
 
-    "geopolitics": [
-        "https://warontherocks.com/feed/",
-        "https://www.foreignaffairs.com/rss.xml",
-        "https://www.cfr.org/rss/rss.xml",
-        "https://www.aei.org/feed/",
-    ],
-
-    "developed_markets": [
-        "https://finance.yahoo.com/rss/topstories",
-        "https://feeds.marketwatch.com/marketwatch/topstories/",
-        "https://www.morningstar.com/rss/rss.xml",
-        "https://rpc.cfainstitute.org/feed",
-    ],
-
-    "international_markets": [
-        "https://feeds.reuters.com/reuters/businessNews",
-        "https://feeds.bbci.co.uk/news/business/rss.xml",
-        "https://www.cfr.org/rss/rss.xml",
-    ],
-
-    "private_equity_credit": [
-        "https://www.themiddlemarket.com/feed",
-        "https://www.institutionalinvestor.com/rss/articles.aspx",
-        "https://axios.com/feeds/feed.rss",
-        "https://pitchbook.com/rss/news",
-    ],
-
-    "venture_capital": [
-        "https://techcrunch.com/category/venture/feed/",
-        "https://news.crunchbase.com/feed/",
-        "https://venturebeat.com/feed/",
-    ],
-
-    "real_estate_pe": [
-        "https://www.globest.com/feed/",
-        "https://therealdeal.com/feed/",
-        "https://www.connectcre.com/feed/",
-    ],
-
-    "commodities_metals": [
-        "https://feeds.reuters.com/reuters/commoditiesNews",
-        "https://www.kitco.com/rss/kitconews.rss",
-        "https://www.mining.com/feed/",
-        "https://www.nasdaq.com/feed/rssoutbound?category=Commodities",
-    ],
-
-    "estate_tax": [
+    "tax_estate": [
         "https://taxpolicycenter.org/taxvox/feed",
         "https://www.journalofaccountancy.com/rss/all-content.xml",
         "https://www.kiplinger.com/feed/rss",
         "https://www.irs.gov/rss-feeds/irs-news-releases",
+        "https://www.sec.gov/rss/news/pressreleases.rss",
+        "https://www.govtrack.us/events/events.rss?feeds=misc:allvotes",
+        "https://app.leg.wa.gov/RSS/BillSummary.aspx",
     ],
 
-    "ma_business_sale": [
+    "markets_investing": [
+        "https://finance.yahoo.com/rss/topstories",
+        "https://feeds.marketwatch.com/marketwatch/topstories/",
+        "https://www.morningstar.com/rss/rss.xml",
+        "https://rpc.cfainstitute.org/feed",
+        "https://feeds.reuters.com/reuters/businessNews",
+        "https://www.themiddlemarket.com/feed",
+        "https://www.institutionalinvestor.com/rss/articles.aspx",
+        "https://techcrunch.com/category/venture/feed/",
+        "https://www.globest.com/feed/",
+        "https://feeds.reuters.com/reuters/commoditiesNews",
+        "https://www.kitco.com/rss/kitconews.rss",
+        "https://warontherocks.com/feed/",
+        "https://www.foreignaffairs.com/rss.xml",
+    ],
+
+    "ma_business": [
         "https://www.themiddlemarket.com/feed",
         "https://hbr.org/feed/topic/mergers-and-acquisitions",
         "https://pitchbook.com/rss/news",
         "https://axios.com/feeds/feed.rss",
     ],
 
-    "wealth_management": [
+    "family_office": [
         "https://www.thinkadvisor.com/feed/",
         "https://www.wealthmanagement.com/rss.xml",
         "https://www.investmentnews.com/feed",
         "https://citywire.com/ria/rss",
     ],
-
-    "legislation": [
-        "https://www.irs.gov/rss-feeds/irs-news-releases",
-        "https://www.sec.gov/rss/news/pressreleases.rss",
-        "https://www.govtrack.us/events/events.rss?feeds=misc:allvotes",
-        "https://app.leg.wa.gov/RSS/BillSummary.aspx",
-    ],
 }
 
 FALLBACK_QUERIES = {
-    "notable_events":         "top news today business economy",
-    "geopolitics":            "geopolitics trade policy global economy",
-    "developed_markets":      "stock market S&P 500 Federal Reserve interest rates",
-    "international_markets":  "international markets global economy foreign currency",
-    "private_equity_credit":  "private equity credit direct lending buyout deal",
-    "venture_capital":        "venture capital startup funding VC",
-    "real_estate_pe":         "commercial real estate private equity CRE",
-    "commodities_metals":     "gold silver commodities oil precious metals",
-    "estate_tax":             "estate planning tax planning gift tax wealth transfer",
-    "ma_business_sale":       "mergers acquisitions business sale M&A deal",
-    "wealth_management":      "wealth management RIA family office fiduciary",
-    "legislation":            "tax legislation IRS SEC regulation estate planning law",
+    "notable_events":    "top news today business economy politics",
+    "tax_estate":        "estate planning tax legislation IRS gift trust wealth transfer",
+    "markets_investing": "stock market investing Fed rates private equity real estate commodities macro",
+    "ma_business":       "mergers acquisitions business sale M&A private equity deal",
+    "family_office":     "wealth management RIA family office fiduciary UHNW",
 }
 
 LEGISLATION_STATE_QUERIES = [
@@ -135,7 +94,6 @@ LEGISLATION_STATE_QUERIES = [
     "Oregon tax legislation estate planning 2026",
     "California tax legislation business owners 2026",
     "Arizona tax legislation wealth planning 2026",
-    "federal tax legislation estate IRS 2026",
 ]
 
 
@@ -162,22 +120,26 @@ MARKET_TICKERS = [
     ("DXY (Dollar)",  "DX-Y.NYB"),
 ]
 
-# FRED series: (display_name, series_id, format_fn)
+# FRED series: (display_name, series_id, format_fn, yoy_calc)
+# yoy_calc=True means fetch 13 months and calculate % change vs year ago
 def pct(v):   return f"{v:.1f}%"
 def rate(v):  return f"{v:.2f}%"
 def idx(v):   return f"{v:.1f}"
 
+# (display_name, series_id, format_fn, units, historical_context)
+# units: "pc1" = percent change from year ago, "lin" = raw level
+# historical_context: short benchmark so readers know if reading is hot/cold/normal
 FRED_SERIES = [
-    ("CPI YoY",         "CPIAUCSL",         pct),
-    ("Core CPI YoY",    "CPILFESL",         pct),
-    ("PCE YoY",         "PCEPI",            pct),
-    ("Core PCE YoY",    "PCEPILFE",         pct),
-    ("Unemployment",    "UNRATE",           pct),
-    ("GDP Growth",      "A191RL1Q225SBEA",  pct),
-    ("ISM Mfg PMI",     "NAPM",             idx),
-    ("ISM Svcs PMI",    "NMFBAI",           idx),
-    ("UMich Sentiment", "UMCSENT",          idx),
-    ("Fed Funds Rate",  "FEDFUNDS",         rate),
+    ("CPI YoY",          "CPIAUCSL",          pct,  "pc1",  "Target: 2.0%"),
+    ("Core CPI YoY",     "CPILFESL",          pct,  "pc1",  "Target: 2.0%"),
+    ("PCE YoY",          "PCEPI",             pct,  "pc1",  "Fed target: 2.0%"),
+    ("Core PCE YoY",     "PCEPILFE",          pct,  "pc1",  "Fed target: 2.0%"),
+    ("Unemployment",     "UNRATE",            pct,  "lin",  "Avg (2015-19): 4.4%"),
+    ("GDP Growth",       "A191RL1Q225SBEA",   pct,  "lin",  "Long-run avg: ~2.5%"),
+    ("ISM Mfg PMI",      "NAPM",              idx,  "lin",  "Expansion > 50"),
+    ("ISM Svcs PMI",     "NMFBAI",            idx,  "lin",  "Expansion > 50"),
+    ("UMich Sentiment",  "UMCSENT",           idx,  "lin",  "Avg (2015-19): 96.5"),
+    ("Fed Funds Rate",   "FEDFUNDS",          rate, "lin",  "Pre-COVID avg: 1.4%"),
 ]
 
 
@@ -274,25 +236,25 @@ def fetch_market_data():
     return results
 
 
-def fetch_fred_series(series_id):
+def fetch_fred_series(series_id, units="lin"):
     """Fetch the most recent observation for a FRED series."""
     try:
         url = "https://api.stlouisfed.org/fred/series/observations"
         params = {
-            "series_id":      series_id,
-            "api_key":        FRED_API_KEY,
-            "file_type":      "json",
-            "sort_order":     "desc",
-            "limit":          "2",
+            "series_id":       series_id,
+            "api_key":         FRED_API_KEY,
+            "file_type":       "json",
+            "sort_order":      "desc",
+            "limit":           "2",
             "observation_end": date.today().isoformat(),
+            "units":           units,
         }
         r = requests.get(url, params=params, timeout=10)
         obs = r.json()["observations"]
-        # Find most recent non-null value
         for o in obs:
             if o["value"] not in (".", ""):
-                val = float(o["value"])
-                dt  = datetime.strptime(o["date"], "%Y-%m-%d")
+                val   = float(o["value"])
+                dt    = datetime.strptime(o["date"], "%Y-%m-%d")
                 as_of = dt.strftime("%b %Y") if dt.day == 1 else dt.strftime("%b %d, %Y")
                 return val, as_of
         return None, None
@@ -305,8 +267,30 @@ def fetch_economic_data():
     """Fetch all FRED economic indicators."""
     print("  → Fetching economic data (FRED)...")
     results = []
+    for name, series_id, fmt, units, context in FRED_SERIES:
+        val, as_of = fetch_fred_series(series_id, units=units)
+        formatted  = fmt(val) if val is not None else "N/A"
+        results.append({
+            "name":    name,
+            "value":   formatted,
+            "as_of":   as_of or "N/A",
+            "context": context,
+        })
+        print(f"    {'✓' if val else '✗'} {name}: {formatted}")
+    return results
+
+
+def fetch_economic_data():
+    """Fetch all FRED economic indicators with correct YoY calculations."""
+    print("  → Fetching economic data (FRED)...")
+
+    # Series that need YoY calculation (index levels)
+    YOY_SERIES = {"CPIAUCSL", "CPILFESL", "PCEPI", "PCEPILFE"}
+
+    results = []
     for name, series_id, fmt in FRED_SERIES:
-        val, as_of = fetch_fred_series(series_id)
+        needs_yoy = series_id in YOY_SERIES
+        val, as_of = fetch_fred_series(series_id, calculate_yoy=needs_yoy)
         formatted = fmt(val) if val is not None else "N/A"
         results.append({"name": name, "value": formatted, "as_of": as_of or "N/A"})
         print(f"    {'✓' if val else '✗'} {name}: {formatted}")
@@ -315,75 +299,84 @@ def fetch_economic_data():
 
 def fetch_fed_expectations():
     """
-    Derive Fed meeting probabilities from 30-day Fed Funds futures via FRED.
-    Uses FF1 and FF2 (front-month and next-month Fed Funds futures).
-    Falls back gracefully if data unavailable.
+    Fetch Fed meeting probabilities from CME FedWatch JSON API.
+    Falls back to FRED-based estimate if unavailable.
     """
-    print("  → Fetching Fed expectations (FRED futures)...")
+    print("  → Fetching Fed expectations...")
     try:
-        # Current Fed Funds Rate
+        # CME publishes a JSON endpoint used by their FedWatch tool
+        url = "https://www.cmegroup.com/CmeWS/mvc/ProductCalendar/Future/FR"
+        headers = {**HEADERS, "Referer": "https://www.cmegroup.com/markets/interest-rates/cme-fedwatch-tool.html"}
+        r = requests.get(url, headers=headers, timeout=12)
+        data = r.json()
+
+        if not data:
+            raise ValueError("Empty response from CME")
+
+        # Get the nearest contract
+        contract = data[0] if isinstance(data, list) else data
+        implied_rate = float(contract.get("last", 0))
         curr_val, _ = fetch_fred_series("FEDFUNDS")
         if curr_val is None:
-            raise ValueError("Could not fetch current Fed Funds Rate")
+            raise ValueError("No current rate")
 
-        # 30-day Fed Funds futures — implied rate for next meeting
-        fut_val, _ = fetch_fred_series("FF1")
-        if fut_val is None:
-            # Fallback: use FF2
-            fut_val, _ = fetch_fred_series("FF2")
+        implied_change_bps = round((implied_rate - curr_val) * 100)
 
-        if fut_val is None:
-            raise ValueError("Could not fetch Fed Funds futures")
+    except Exception:
+        # Pure FRED fallback
+        try:
+            curr_val, _ = fetch_fred_series("FEDFUNDS")
+            # Use 3-month T-bill as proxy for near-term rate expectations
+            tbill_val, _ = fetch_fred_series("DTB3")
+            if curr_val and tbill_val:
+                implied_change_bps = round((tbill_val - curr_val) * 100)
+            else:
+                raise ValueError("No fallback data")
+        except Exception as e:
+            print(f"    ✗ Fed expectations failed: {e}")
+            return None
 
-        # Implied change in bps
-        implied_change_bps = round((fut_val - curr_val) * 100)
+    # Build probability estimates from implied change
+    if implied_change_bps <= -37:
+        hold, cut25, cut50, hike25 = 5, 40, 55, 0
+    elif implied_change_bps <= -20:
+        hold, cut25, cut50, hike25 = 15, 70, 15, 0
+    elif implied_change_bps <= -8:
+        hold, cut25, cut50, hike25 = 30, 65, 5, 0
+    elif implied_change_bps <= 8:
+        hold, cut25, cut50, hike25 = 85, 12, 0, 3
+    elif implied_change_bps <= 20:
+        hold, cut25, cut50, hike25 = 30, 0, 0, 70
+    else:
+        hold, cut25, cut50, hike25 = 5, 0, 0, 95
 
-        # Determine next FOMC meeting date (approximate)
-        today = datetime.now()
-        # FOMC meets roughly every 6 weeks — find next meeting
-        fomc_2026 = [
-            datetime(2026, 1, 29), datetime(2026, 3, 19), datetime(2026, 5, 7),
-            datetime(2026, 6, 18), datetime(2026, 7, 30), datetime(2026, 9, 17),
-            datetime(2026, 10, 29), datetime(2026, 12, 10),
-        ]
-        next_meeting = next((d for d in fomc_2026 if d > today), None)
-        meeting_str = next_meeting.strftime("%B %d, %Y") if next_meeting else "Next Meeting"
+    # Next FOMC meeting
+    today = datetime.now()
+    fomc_2026 = [
+        datetime(2026, 1, 29), datetime(2026, 3, 19), datetime(2026, 5, 7),
+        datetime(2026, 6, 18), datetime(2026, 7, 30), datetime(2026, 9, 17),
+        datetime(2026, 10, 29), datetime(2026, 12, 10),
+    ]
+    next_meeting = next((d for d in fomc_2026 if d > today), None)
+    meeting_str  = next_meeting.strftime("%B %d, %Y") if next_meeting else "Next Meeting"
 
-        # Build probability estimates based on implied change
-        if implied_change_bps <= -37:
-            hold, cut25, cut50, hike25 = 5, 45, 50, 0
-        elif implied_change_bps <= -13:
-            hold, cut25, cut50, hike25 = 20, 75, 5, 0
-        elif implied_change_bps <= 12:
-            hold, cut25, cut50, hike25 = 85, 13, 0, 2
-        elif implied_change_bps <= 37:
-            hold, cut25, cut50, hike25 = 20, 0, 0, 80
-        else:
-            hold, cut25, cut50, hike25 = 5, 0, 0, 95
+    # Year-end implied rate
+    curr_val, _ = fetch_fred_series("FEDFUNDS")
+    ye_tbill, _ = fetch_fred_series("DTB6")  # 6-month T-bill as year-end proxy
+    yr_end = f"{ye_tbill:.2f}%" if ye_tbill else (f"{(curr_val + implied_change_bps/100):.2f}%" if curr_val else "N/A")
+    cuts_expected = max(0, round((curr_val - float(yr_end.replace('%',''))) / 0.25)) if curr_val and yr_end != "N/A" else 0
+    cuts_str = f"{cuts_expected} cut{'s' if cuts_expected != 1 else ''}" if cuts_expected > 0 else "no cuts"
 
-        # Year-end implied rate — use FF8 or FF12 if available
-        ye_val, _ = fetch_fred_series("FF8")
-        if ye_val is None:
-            ye_val = curr_val + (implied_change_bps / 100) * 2
-
-        yr_end = f"{ye_val:.2f}%"
-        cuts_expected = max(0, round((curr_val - ye_val) / 0.25))
-        cuts_str = f"{cuts_expected} cut{'s' if cuts_expected != 1 else ''}" if cuts_expected > 0 else "no cuts"
-
-        return {
-            "meeting": meeting_str,
-            "hold":    hold,
-            "cut25":   cut25,
-            "cut50":   cut50,
-            "hike25":  hike25,
-            "yr_end":  yr_end,
-            "cuts":    cuts_str,
-            "source":  "FRED Fed Funds Futures",
-        }
-
-    except Exception as e:
-        print(f"    ✗ Fed expectations failed: {e}")
-        return None
+    return {
+        "meeting": meeting_str,
+        "hold":    hold,
+        "cut25":   cut25,
+        "cut50":   cut50,
+        "hike25":  hike25,
+        "yr_end":  yr_end,
+        "cuts":    cuts_str,
+        "source":  "Fed Funds Futures (implied)",
+    }
 
 
 # ─── News Helpers ──────────────────────────────────────────────────────────────
@@ -437,18 +430,18 @@ def compile_articles():
                     seen.add(a['title'])
                     articles.append(a)
 
-        all_articles[topic] = articles[:5]
+        all_articles[topic] = articles[:8]
 
-    # State legislation supplement
-    print("  → legislation (state supplements)")
-    leg_seen = set(a['title'] for a in all_articles.get('legislation', []))
+    # Supplement tax_estate with state legislation queries
+    print("  → tax_estate (state legislation supplements)")
+    tax_seen = set(a['title'] for a in all_articles.get('tax_estate', []))
     for q in LEGISLATION_STATE_QUERIES:
         results = fetch_news_google(q, max_articles=2)
         for a in results:
-            if a['title'] not in leg_seen:
-                leg_seen.add(a['title'])
-                all_articles['legislation'].append(a)
-    all_articles['legislation'] = all_articles['legislation'][:6]
+            if a['title'] not in tax_seen:
+                tax_seen.add(a['title'])
+                all_articles['tax_estate'].append(a)
+    all_articles['tax_estate'] = all_articles['tax_estate'][:8]
 
     return all_articles
 
@@ -494,9 +487,11 @@ Today is {today}.
 
 AUDIENCE: Experienced wealth advisors. Assume strong financial literacy. Accessible enough for a newer advisor.
 
-GOAL: A tight, high-signal briefing readable in 5-7 minutes over coffee. Target 700 words of editorial content maximum. Every section earns its place. When in doubt, cut it. A short sharp brief beats a complete one.
+GOAL: A tight, high-signal briefing readable in 5-7 minutes over coffee. Target 700 words of editorial content maximum. Every section earns its place. When in doubt, cut it entirely.
 
 DEDUPLICATION RULE: If two or more articles cover the same story or angle, pick the single strongest one and drop the rest entirely. Do not cover the same topic from multiple angles across the brief.
+
+CATEGORIZATION RULE: Place each article in the single most relevant section. A Federal Reserve article goes in Markets & Economic. A Powell speech goes in Markets & Economic. An IRS notice goes in Tax & Estate Planning. Do not let general financial news bleed into wrong sections.
 
 VOICE (non-negotiable):
 - CIO memo tone. Calm, confident, analytically precise.
@@ -507,7 +502,7 @@ VOICE (non-negotiable):
 - Bifurcated economy shorthand: "the K economy."
 - Use "wealth event" or "liquidity event" — not just "transaction."
 - Use "families" or "business owners" — not "high-net-worth individuals" or "HNWIs."
-- No filler: "it is worth noting," "this highlights the importance of," "in today's complex landscape," etc.
+- No filler phrases whatsoever.
 - No em dashes. Use commas or short sentence breaks instead.
 - Oxford comma always.
 - Links appear ONCE per article. Format: [Link](URL) using the word "Link" as anchor text.
@@ -515,78 +510,86 @@ VOICE (non-negotiable):
 
 FORMAT RULES:
 - Do NOT include a title or date at the top — the email header handles this.
-- Each Sector Review item: headline on its own line, then Punchline on its own line, then Summary on its own line, then Relevance on its own line. Blank line between each field. Two blank lines between separate items.
-- Conversation Starters: each sub-bullet on its own line with a blank line between each.
-- Summary field: 3 sentences maximum, hard cap.
-- Notable Events: informative one-liners — enough context that the reader doesn't need to click. Not just a headline rewrite.
+- No Summary field anywhere. Only Punchline and Relevance.
+- Punchline: 2 sentences max. Hard cap.
+- Relevance: 2 short sentences max. Hard cap.
+- Blank line between Punchline and Relevance. Two blank lines between separate items.
+- Conversation Starters: each sub-bullet on its own line with a blank line between each field.
 
 ---
 
-Here are today's source articles:
+Here are today's source articles by feed category. Use topic relevance — not feed source — to decide which brief section each article belongs in:
 {article_text}
 
 ---
 
-Produce the briefing using EXACTLY this structure. Skip any section or subsection with no strong material — do not pad.
+Produce the briefing using EXACTLY this structure. Skip any section with no strong material.
 
 ---
 
 ## Notable Events
 
-Five one-liners. Each tells the reader what happened and why it matters in a single sentence. CIO tone. Link at the end of each.
+5 items. Format for each: bold lead-in of 3-5 words, then a dash, then one informative sentence that tells the reader what happened and why it matters without needing to click. Link at the end.
 
-- [Full informative sentence that stands alone without clicking.] ([Link](URL))
-- [Same format]
-- [Same format]
-- [Same format]
-- [Same format]
+**Bold Lead-In —** Full informative sentence explaining what happened and why it matters. ([Link](URL))
+
+[Repeat for all 5 items]
 
 ---
 
-## Sector Review
+## Tax and Estate Planning
 
-Only include subsections with fresh, genuinely relevant content. Hard cap: 1 item per subsection. Skip any subsection with nothing strong today.
+Includes legislation updates, IRS guidance, SEC rules, state and federal tax law changes, estate planning strategy, and trust-related news. 1-3 items max. Skip if nothing strong today.
 
 For each item:
 
 **[Headline]** ([Link](URL))
 
-**Punchline:** [1-2 sentences. TL;DR.]
+**Punchline:** [2 sentences max.]
 
-**Summary:** [3 sentences max. More depth than punchline, concise.]
-
-**Relevance:** [1-2 sentences. Why should a family office advisor serving business owners care about this today.]
+**Relevance:** [2 short sentences max. Why a family office advisor serving business owners should care.]
 
 ---
 
-### Geopolitics
+## Markets and Economic
 
-### Developed Markets
+All investing and macro content: equity markets, fixed income, Fed policy, private equity, private credit, venture capital, real estate, commodities, precious metals, geopolitics with economic implications. 1-3 items max. Skip if nothing strong today. Do NOT include tax, estate, M&A, or family office content here.
 
-### International Markets
+For each item:
 
-### Private Equity and Credit
+**[Headline]** ([Link](URL))
 
-### Venture Capital
+**Punchline:** [2 sentences max.]
 
-### Real Estate
-
-### Commodities and Metals
-
-### Estate and Tax Planning
-
-### M&A and Business Sales
-
-### Wealth Management and Family Office
+**Relevance:** [2 short sentences max.]
 
 ---
 
-## Legislation Updates
+## M&A and Business
 
-Federal and state (TX, WA, OR, CA, AZ) legislation, regulatory guidance, IRS notices, SEC rules, enforcement updates. UHNW and business owner lens only. Omit entirely if nothing material today.
+Business sales, mergers, acquisitions, deal market conditions, exit planning news, private equity deal flow. 1-2 items max. Skip if nothing strong today.
 
-**[Jurisdiction — Topic]** ([Link](URL))
-[1-2 sentences: what changed and why it matters.]
+For each item:
+
+**[Headline]** ([Link](URL))
+
+**Punchline:** [2 sentences max.]
+
+**Relevance:** [2 short sentences max.]
+
+---
+
+## Family Office
+
+Wealth management industry news, RIA trends, family office operations, fiduciary topics, advisor practice management. 1-2 items max. Skip if nothing strong today.
+
+For each item:
+
+**[Headline]** ([Link](URL))
+
+**Punchline:** [2 sentences max.]
+
+**Relevance:** [2 short sentences max.]
 
 ---
 
@@ -660,11 +663,13 @@ def build_market_html(market_data, econ_data, fed_data):
     econ_rows = ""
     for i, e in enumerate(econ_data):
         bg = "#ffffff" if i % 2 == 0 else "#f7f7f4"
+        bold = "font-weight:700;" if "Fed" in e['name'] else ""
         econ_rows += f"""
         <tr style="background:{bg};">
-          <td style="padding:6px 10px;color:#1a1a1a;font-size:13px;">{e['name']}</td>
-          <td style="padding:6px 10px;text-align:right;color:#1a1a1a;font-size:13px;font-weight:{'700' if 'Fed' in e['name'] else '400'};">{e['value']}</td>
-          <td style="padding:6px 10px;text-align:right;color:#888;font-size:11px;">{e['as_of']}</td>
+          <td style="padding:6px 8px;color:#1a1a1a;font-size:12px;">{e['name']}</td>
+          <td style="padding:6px 8px;text-align:right;color:#1a1a1a;font-size:12px;{bold}">{e['value']}</td>
+          <td style="padding:6px 8px;text-align:right;color:#888;font-size:10px;">{e['as_of']}</td>
+          <td style="padding:6px 8px;text-align:right;color:#7a8f96;font-size:10px;font-style:italic;">{e.get('context','')}</td>
         </tr>"""
 
     # Fed expectations block
@@ -757,6 +762,7 @@ def build_market_html(market_data, econ_data, fed_data):
                 <th style="text-align:left;padding:6px 8px;font-family:'Century Gothic',Arial,sans-serif;font-size:9px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#B99A38;">Indicator</th>
                 <th style="text-align:right;padding:6px 8px;font-family:'Century Gothic',Arial,sans-serif;font-size:9px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#B99A38;">Reading</th>
                 <th style="text-align:right;padding:6px 8px;font-family:'Century Gothic',Arial,sans-serif;font-size:9px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#B99A38;">As of</th>
+                <th style="text-align:right;padding:6px 8px;font-family:'Century Gothic',Arial,sans-serif;font-size:9px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#B99A38;">Benchmark</th>
               </tr>
             </thead>
             <tbody>{econ_rows}</tbody>
