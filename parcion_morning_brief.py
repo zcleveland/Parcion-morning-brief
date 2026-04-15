@@ -280,21 +280,7 @@ def fetch_economic_data():
     return results
 
 
-def fetch_economic_data():
-    """Fetch all FRED economic indicators with correct YoY calculations."""
-    print("  → Fetching economic data (FRED)...")
 
-    # Series that need YoY calculation (index levels)
-    YOY_SERIES = {"CPIAUCSL", "CPILFESL", "PCEPI", "PCEPILFE"}
-
-    results = []
-    for name, series_id, fmt in FRED_SERIES:
-        needs_yoy = series_id in YOY_SERIES
-        val, as_of = fetch_fred_series(series_id, calculate_yoy=needs_yoy)
-        formatted = fmt(val) if val is not None else "N/A"
-        results.append({"name": name, "value": formatted, "as_of": as_of or "N/A"})
-        print(f"    {'✓' if val else '✗'} {name}: {formatted}")
-    return results
 
 
 def fetch_fed_expectations():
