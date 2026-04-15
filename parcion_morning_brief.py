@@ -243,14 +243,14 @@ def fetch_fred_series(series_id, units="lin"):
             "api_key":         FRED_API_KEY,
             "file_type":       "json",
             "sort_order":      "desc",
-            "limit":           "2",
+            "limit":           "6",  # pull 6 to skip any N/A at the top
             "observation_end": date.today().isoformat(),
             "units":           units,
         }
         r = requests.get(url, params=params, timeout=10)
         obs = r.json()["observations"]
         for o in obs:
-            if o["value"] not in (".", ""):
+            if o["value"] not in (".", "", "N/A"):
                 val   = float(o["value"])
                 dt    = datetime.strptime(o["date"], "%Y-%m-%d")
                 as_of = dt.strftime("%b %Y") if dt.day == 1 else dt.strftime("%b %d, %Y")
