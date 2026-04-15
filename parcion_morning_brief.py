@@ -11,10 +11,8 @@ import smtplib
 import os
 import urllib.parse
 import re
-import json
 import requests
 import markdown
-from bs4 import BeautifulSoup
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from datetime import datetime, date
@@ -170,36 +168,61 @@ def rate(v):  return f"{v:.2f}%"
 def idx(v):   return f"{v:.1f}"
 
 FRED_SERIES = [
-    ("CPI YoY",         "CPIAUCSL",    pct),
-    ("Core CPI YoY",    "CPILFESL",    pct),
-    ("PCE YoY",         "PCEPI",       pct),
-    ("Core PCE YoY",    "PCEPILFE",    pct),
-    ("Unemployment",    "UNRATE",      pct),
-    ("GDP Growth",      "A191RL1Q225SBEA", pct),
-    ("ISM Mfg PMI",     "MANEMP",      idx),
-    ("ISM Svcs PMI",    "NMFSL",       idx),
-    ("UMich Sentiment", "UMCSENT",     idx),
-    ("Fed Funds Rate",  "FEDFUNDS",    rate),
+    ("CPI YoY",         "CPIAUCSL",         pct),
+    ("Core CPI YoY",    "CPILFESL",         pct),
+    ("PCE YoY",         "PCEPI",            pct),
+    ("Core PCE YoY",    "PCEPILFE",         pct),
+    ("Unemployment",    "UNRATE",           pct),
+    ("GDP Growth",      "A191RL1Q225SBEA",  pct),
+    ("ISM Mfg PMI",     "NAPM",             idx),
+    ("ISM Svcs PMI",    "NMFBAI",           idx),
+    ("UMich Sentiment", "UMCSENT",          idx),
+    ("Fed Funds Rate",  "FEDFUNDS",         rate),
 ]
 
 
-def fetch_yahoo_quote(symbol):
-    """Fetch current price and YTD change for a Yahoo Finance symbol."""
+def get_yahoo_session():
+    """Get a valid Yahoo Finance session with cookies."""
+    session = requests.Session()
+    session.headers.update(HEADERS)
     try:
-        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(symbol)}"
+        # Hit the main page to get cookies
+        session.get("https://finance.yahoo.com", timeout=10)
+    except Exception:
+        pass
+    return session
+
+_yahoo_session = None
+
+def fetch_yahoo_quote(symbol):
+    """Fetch current price and YTD change using Yahoo Finance v8 chart API."""
+    global _yahoo_session
+    if _yahoo_session is None:
+        _yahoo_session = get_yahoo_session()
+    try:
+        # Use v8 chart endpoint with 1y range to get YTD data
+        url = f"https://query2.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(symbol)}"
         params = {
-            "interval": "1d",
-            "range":    "1y",
+            "interval":  "1d",
+            "range":     "1y",
+            "includePrePost": "false",
         }
-        r = requests.get(url, params=params, headers=HEADERS, timeout=10)
-        data = r.json()
-        meta   = data["chart"]["result"][0]["meta"]
-        closes = data["chart"]["result"][0]["indicators"]["quote"][0]["close"]
-        timestamps = data["chart"]["result"][0]["timestamps"]
+        r = _yahoo_session.get(url, params=params, timeout=15)
+        r.raise_for_status()
+        data   = r.json()
+        result = data["chart"]["result"][0]
+        meta   = result["meta"]
 
-        current_price = meta.get("regularMarketPrice") or meta.get("previousClose")
+        current_price = (
+            meta.get("regularMarketPrice") or
+            meta.get("previousClose") or
+            result["indicators"]["quote"][0]["close"][-1]
+        )
 
-        # Find first trading day of current year
+        closes     = result["indicators"]["quote"][0]["close"]
+        timestamps = result["timestamp"]
+
+        # Find first non-null close in current calendar year
         current_year = datetime.now().year
         jan_close = None
         for ts, close in zip(timestamps, closes):
@@ -210,12 +233,12 @@ def fetch_yahoo_quote(symbol):
                 jan_close = close
                 break
 
-        if jan_close and jan_close != 0:
+        ytd_pct = None
+        if jan_close and jan_close != 0 and current_price:
             ytd_pct = ((current_price - jan_close) / jan_close) * 100
-        else:
-            ytd_pct = None
 
         return current_price, ytd_pct
+
     except Exception as e:
         print(f"    ✗ Yahoo quote failed ({symbol}): {e}")
         return None, None
@@ -292,47 +315,74 @@ def fetch_economic_data():
 
 def fetch_fed_expectations():
     """
-    Fetch Fed rate cut/hike probabilities from CME FedWatch.
-    Falls back to a reasonable estimate from the 2Y/10Y Treasury spread if scraping fails.
+    Derive Fed meeting probabilities from 30-day Fed Funds futures via FRED.
+    Uses FF1 and FF2 (front-month and next-month Fed Funds futures).
+    Falls back gracefully if data unavailable.
     """
-    print("  → Fetching Fed expectations (CME FedWatch)...")
+    print("  → Fetching Fed expectations (FRED futures)...")
     try:
-        url = "https://www.cmegroup.com/markets/interest-rates/cme-fedwatch-tool.html"
-        r = requests.get(url, headers=HEADERS, timeout=12)
-        soup = BeautifulSoup(r.text, "html.parser")
+        # Current Fed Funds Rate
+        curr_val, _ = fetch_fred_series("FEDFUNDS")
+        if curr_val is None:
+            raise ValueError("Could not fetch current Fed Funds Rate")
 
-        # CME renders probabilities via JavaScript — attempt to find JSON data island
-        scripts = soup.find_all("script")
-        for s in scripts:
-            txt = s.string or ""
-            if "meetingDate" in txt and "probability" in txt:
-                # Extract first meeting probability block
-                match = re.search(r'\{[^{}]*"meetingDate"[^{}]*\}', txt)
-                if match:
-                    block = json.loads(match.group())
-                    meeting = block.get("meetingDate", "Next Meeting")
-                    hold    = block.get("holdPct",   None)
-                    cut25   = block.get("cut25Pct",  None)
-                    cut50   = block.get("cut50Pct",  None)
-                    hike25  = block.get("hike25Pct", None)
-                    yr_end  = block.get("yearEndRate", None)
-                    cuts    = block.get("cutsExpected", None)
-                    return {
-                        "meeting": meeting,
-                        "hold":    hold,
-                        "cut25":   cut25,
-                        "cut50":   cut50,
-                        "hike25":  hike25,
-                        "yr_end":  yr_end,
-                        "cuts":    cuts,
-                        "source":  "CME FedWatch",
-                    }
+        # 30-day Fed Funds futures — implied rate for next meeting
+        fut_val, _ = fetch_fred_series("FF1")
+        if fut_val is None:
+            # Fallback: use FF2
+            fut_val, _ = fetch_fred_series("FF2")
 
-        raise ValueError("Probability data not found in page source")
+        if fut_val is None:
+            raise ValueError("Could not fetch Fed Funds futures")
+
+        # Implied change in bps
+        implied_change_bps = round((fut_val - curr_val) * 100)
+
+        # Determine next FOMC meeting date (approximate)
+        today = datetime.now()
+        # FOMC meets roughly every 6 weeks — find next meeting
+        fomc_2026 = [
+            datetime(2026, 1, 29), datetime(2026, 3, 19), datetime(2026, 5, 7),
+            datetime(2026, 6, 18), datetime(2026, 7, 30), datetime(2026, 9, 17),
+            datetime(2026, 10, 29), datetime(2026, 12, 10),
+        ]
+        next_meeting = next((d for d in fomc_2026 if d > today), None)
+        meeting_str = next_meeting.strftime("%B %d, %Y") if next_meeting else "Next Meeting"
+
+        # Build probability estimates based on implied change
+        if implied_change_bps <= -37:
+            hold, cut25, cut50, hike25 = 5, 45, 50, 0
+        elif implied_change_bps <= -13:
+            hold, cut25, cut50, hike25 = 20, 75, 5, 0
+        elif implied_change_bps <= 12:
+            hold, cut25, cut50, hike25 = 85, 13, 0, 2
+        elif implied_change_bps <= 37:
+            hold, cut25, cut50, hike25 = 20, 0, 0, 80
+        else:
+            hold, cut25, cut50, hike25 = 5, 0, 0, 95
+
+        # Year-end implied rate — use FF8 or FF12 if available
+        ye_val, _ = fetch_fred_series("FF8")
+        if ye_val is None:
+            ye_val = curr_val + (implied_change_bps / 100) * 2
+
+        yr_end = f"{ye_val:.2f}%"
+        cuts_expected = max(0, round((curr_val - ye_val) / 0.25))
+        cuts_str = f"{cuts_expected} cut{'s' if cuts_expected != 1 else ''}" if cuts_expected > 0 else "no cuts"
+
+        return {
+            "meeting": meeting_str,
+            "hold":    hold,
+            "cut25":   cut25,
+            "cut50":   cut50,
+            "hike25":  hike25,
+            "yr_end":  yr_end,
+            "cuts":    cuts_str,
+            "source":  "FRED Fed Funds Futures",
+        }
 
     except Exception as e:
-        print(f"    ✗ CME FedWatch scrape failed: {e}. Using fallback.")
-        # Graceful fallback: return None so HTML block is omitted cleanly
+        print(f"    ✗ Fed expectations failed: {e}")
         return None
 
 
@@ -638,35 +688,41 @@ def build_market_html(market_data, econ_data, fed_data):
         top = max(probs, key=probs.get) if probs else None
 
         def tile(label, display, val, color):
-            accent = f"border-top:2px solid {color}; background:#f0f7f4;" if label == top else "background:#f7f7f4;"
+            accent_border = f"border-top:3px solid {color};" if label == top else "border-top:3px solid #e8e5dd;"
             txt_color = color if label == top else "#1a1a1a"
             lbl_color = color if label == top else "#888"
+            bg = "#f4faf6" if label == top else "#f7f7f4"
             return f"""
-            <div style="flex:1;padding:10px 8px;text-align:center;{accent}">
-              <div style="font-family:'Century Gothic',Arial,sans-serif;font-size:9px;letter-spacing:0.10em;text-transform:uppercase;color:{lbl_color};margin-bottom:4px;">{display}</div>
-              <div style="font-size:20px;font-weight:700;color:{txt_color};font-family:'Century Gothic',Arial,sans-serif;">{val if val != '—' else '—'}</div>
-            </div>"""
+            <td width="25%" style="padding:10px 6px;text-align:center;background:{bg};{accent_border}">
+              <div style="font-family:'Century Gothic',Arial,sans-serif;font-size:9px;letter-spacing:0.08em;text-transform:uppercase;color:{lbl_color};margin-bottom:4px;">{display}</div>
+              <div style="font-size:18px;font-weight:700;color:{txt_color};font-family:'Century Gothic',Arial,sans-serif;">{val if val != '—' else '—'}</div>
+            </td>"""
 
         tiles = (
-            tile("hold",   "Hold",      f"{hold_pct}%" if hold_pct != '—' else '—',  "#555555") +
-            tile("cut25",  "Cut 25bps", f"{cut25_pct}%" if cut25_pct != '—' else '—', "#2a7a3b") +
-            tile("cut50",  "Cut 50bps", f"{cut50_pct}%" if cut50_pct != '—' else '—', "#1E6685") +
-            tile("hike25", "Hike 25bps",f"{hike25}%" if hike25 != '—' else '—',       "#c0392b")
+            tile("hold",   "Hold",       f"{hold_pct}%"  if hold_pct  != '—' else '—', "#555555") +
+            tile("cut25",  "Cut 25bps",  f"{cut25_pct}%" if cut25_pct != '—' else '—', "#2a7a3b") +
+            tile("cut50",  "Cut 50bps",  f"{cut50_pct}%" if cut50_pct != '—' else '—', "#1E6685") +
+            tile("hike25", "Hike 25bps", f"{hike25}%"    if hike25    != '—' else '—', "#c0392b")
         )
 
         fed_block = f"""
-      <div style="border-top:1px solid #e8e5dd;padding-top:14px;margin-top:4px;">
+      <div style="border-top:1px solid #e8e5dd;padding-top:14px;margin-top:12px;">
         <div style="font-family:'Century Gothic',Arial,sans-serif;font-size:9px;font-weight:700;letter-spacing:0.16em;text-transform:uppercase;color:#B99A38;margin-bottom:8px;">Fed Expectations — {source}</div>
-        <div style="font-family:'Century Gothic',Arial,sans-serif;font-size:10px;color:#555;margin-bottom:8px;">Next Meeting: <strong style="color:#00141C;">{meeting}</strong></div>
-        <div style="display:flex;gap:8px;margin-bottom:10px;">{tiles}</div>
-        <div style="background:#00141C;padding:10px 14px;display:flex;align-items:center;justify-content:space-between;">
-          <div style="font-family:'Century Gothic',Arial,sans-serif;font-size:10px;color:#7a9aa8;letter-spacing:0.06em;">Year-End Implied Rate</div>
-          <div style="display:flex;align-items:baseline;gap:10px;">
-            <span style="font-family:'Century Gothic',Arial,sans-serif;font-size:16px;font-weight:700;color:#f0ece2;">{yr_end}</span>
-            <span style="font-family:'Century Gothic',Arial,sans-serif;font-size:10px;color:#B99A38;letter-spacing:0.06em;">{cuts} cuts priced in</span>
-          </div>
-        </div>
-        <div style="font-size:10px;color:#999;margin-top:6px;font-style:italic;font-family:'Century Gothic',Arial,sans-serif;">Source: {source}. Probabilities reflect Fed Funds futures as of prior close.</div>
+        <div style="font-family:'Century Gothic',Arial,sans-serif;font-size:10px;color:#555;margin-bottom:10px;">Next Meeting: <strong style="color:#00141C;">{meeting}</strong></div>
+        <table width="100%" cellpadding="0" cellspacing="4" border="0">
+          <tr>{tiles}</tr>
+        </table>
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:10px;background:#00141C;">
+          <tr>
+            <td style="padding:10px 14px;font-family:'Century Gothic',Arial,sans-serif;font-size:10px;color:#7a9aa8;letter-spacing:0.06em;">Year-End Implied Rate</td>
+            <td style="padding:10px 14px;text-align:right;">
+              <span style="font-family:'Century Gothic',Arial,sans-serif;font-size:16px;font-weight:700;color:#f0ece2;">{yr_end}</span>
+              &nbsp;&nbsp;
+              <span style="font-family:'Century Gothic',Arial,sans-serif;font-size:10px;color:#B99A38;letter-spacing:0.06em;">{cuts} priced in</span>
+            </td>
+          </tr>
+        </table>
+        <div style="font-size:10px;color:#999;margin-top:6px;font-style:italic;font-family:'Century Gothic',Arial,sans-serif;">Source: {source}. Based on Fed Funds futures as of prior close.</div>
       </div>"""
     else:
         fed_block = ""
@@ -675,39 +731,40 @@ def build_market_html(market_data, econ_data, fed_data):
   <div style="margin-bottom:28px;">
     <div style="font-family:'Century Gothic',Arial,sans-serif;font-size:10px;font-weight:700;letter-spacing:0.18em;text-transform:uppercase;color:#00141C;border-bottom:1px solid #B99A38;padding-bottom:6px;margin-bottom:16px;">Markets &amp; Economic Snapshot</div>
 
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
-
-      <div>
-        <div style="font-family:'Century Gothic',Arial,sans-serif;font-size:9px;font-weight:700;letter-spacing:0.16em;text-transform:uppercase;color:#B99A38;margin-bottom:8px;">Markets — YTD Change</div>
-        <table style="width:100%;border-collapse:collapse;">
-          <thead>
-            <tr style="background:#00141C;">
-              <th style="text-align:left;padding:7px 10px;font-family:'Century Gothic',Arial,sans-serif;font-size:9px;font-weight:700;letter-spacing:0.10em;text-transform:uppercase;color:#B99A38;">Index / Asset</th>
-              <th style="text-align:right;padding:7px 10px;font-family:'Century Gothic',Arial,sans-serif;font-size:9px;font-weight:700;letter-spacing:0.10em;text-transform:uppercase;color:#B99A38;">Value</th>
-              <th style="text-align:right;padding:7px 10px;font-family:'Century Gothic',Arial,sans-serif;font-size:9px;font-weight:700;letter-spacing:0.10em;text-transform:uppercase;color:#B99A38;">YTD</th>
-            </tr>
-          </thead>
-          <tbody>{market_rows}</tbody>
-        </table>
-        <div style="font-size:10px;color:#999;margin-top:6px;font-style:italic;font-family:'Century Gothic',Arial,sans-serif;">Source: Yahoo Finance. Prior trading day close.</div>
-      </div>
-
-      <div>
-        <div style="font-family:'Century Gothic',Arial,sans-serif;font-size:9px;font-weight:700;letter-spacing:0.16em;text-transform:uppercase;color:#B99A38;margin-bottom:8px;">Economic Readings — Latest</div>
-        <table style="width:100%;border-collapse:collapse;">
-          <thead>
-            <tr style="background:#00141C;">
-              <th style="text-align:left;padding:7px 10px;font-family:'Century Gothic',Arial,sans-serif;font-size:9px;font-weight:700;letter-spacing:0.10em;text-transform:uppercase;color:#B99A38;">Indicator</th>
-              <th style="text-align:right;padding:7px 10px;font-family:'Century Gothic',Arial,sans-serif;font-size:9px;font-weight:700;letter-spacing:0.10em;text-transform:uppercase;color:#B99A38;">Reading</th>
-              <th style="text-align:right;padding:7px 10px;font-family:'Century Gothic',Arial,sans-serif;font-size:9px;font-weight:700;letter-spacing:0.10em;text-transform:uppercase;color:#B99A38;">As of</th>
-            </tr>
-          </thead>
-          <tbody>{econ_rows}</tbody>
-        </table>
-        <div style="font-size:10px;color:#999;margin-top:6px;font-style:italic;font-family:'Century Gothic',Arial,sans-serif;">Source: FRED (St. Louis Fed). Most recent release.</div>
-      </div>
-
-    </div>
+    <!-- Outlook-safe two-column table layout -->
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="table-layout:fixed;">
+      <tr>
+        <td width="49%" valign="top" style="padding-right:12px;">
+          <div style="font-family:'Century Gothic',Arial,sans-serif;font-size:9px;font-weight:700;letter-spacing:0.16em;text-transform:uppercase;color:#B99A38;margin-bottom:8px;">Markets — YTD Change</div>
+          <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
+            <thead>
+              <tr style="background:#00141C;">
+                <th style="text-align:left;padding:6px 8px;font-family:'Century Gothic',Arial,sans-serif;font-size:9px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#B99A38;">Index / Asset</th>
+                <th style="text-align:right;padding:6px 8px;font-family:'Century Gothic',Arial,sans-serif;font-size:9px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#B99A38;">Value</th>
+                <th style="text-align:right;padding:6px 8px;font-family:'Century Gothic',Arial,sans-serif;font-size:9px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#B99A38;">YTD</th>
+              </tr>
+            </thead>
+            <tbody>{market_rows}</tbody>
+          </table>
+          <div style="font-size:10px;color:#999;margin-top:6px;font-style:italic;font-family:'Century Gothic',Arial,sans-serif;">Source: Yahoo Finance. Prior close.</div>
+        </td>
+        <td width="2%"></td>
+        <td width="49%" valign="top" style="padding-left:12px;">
+          <div style="font-family:'Century Gothic',Arial,sans-serif;font-size:9px;font-weight:700;letter-spacing:0.16em;text-transform:uppercase;color:#B99A38;margin-bottom:8px;">Economic Readings — Latest</div>
+          <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
+            <thead>
+              <tr style="background:#00141C;">
+                <th style="text-align:left;padding:6px 8px;font-family:'Century Gothic',Arial,sans-serif;font-size:9px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#B99A38;">Indicator</th>
+                <th style="text-align:right;padding:6px 8px;font-family:'Century Gothic',Arial,sans-serif;font-size:9px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#B99A38;">Reading</th>
+                <th style="text-align:right;padding:6px 8px;font-family:'Century Gothic',Arial,sans-serif;font-size:9px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#B99A38;">As of</th>
+              </tr>
+            </thead>
+            <tbody>{econ_rows}</tbody>
+          </table>
+          <div style="font-size:10px;color:#999;margin-top:6px;font-style:italic;font-family:'Century Gothic',Arial,sans-serif;">Source: FRED (St. Louis Fed). Most recent release.</div>
+        </td>
+      </tr>
+    </table>
     {fed_block}
   </div>"""
 
@@ -734,7 +791,7 @@ def build_html(briefing_md, market_html, today_str):
   }}
 
   .wrapper {{
-    max-width: 660px;
+    max-width: 900px;
     margin: 0 auto;
     background: #ffffff;
     border-top: 4px solid #B99A38;
