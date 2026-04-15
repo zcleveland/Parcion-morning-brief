@@ -925,7 +925,7 @@ def build_html(briefing_md, market_html, today_str):
   /* ── Footer ── */
   .footer {{
     background-color: #00141C;
-    padding: 16px 40px;
+    padding: 18px 40px 22px;
   }}
 
   .footer p {{
@@ -934,7 +934,19 @@ def build_html(briefing_md, market_html, today_str):
     letter-spacing: 0.10em;
     color: #4a6470;
     text-transform: uppercase;
+    margin: 0 0 10px 0;
+  }}
+
+  .footer .disclaimer {{
+    font-family: 'Century Gothic', Arial, sans-serif;
+    font-size: 10px;
+    letter-spacing: 0.01em;
+    color: #3a5460;
+    text-transform: none;
+    line-height: 1.6;
     margin: 0;
+    border-top: 1px solid #0d2d3a;
+    padding-top: 10px;
   }}
 
   .footer a {{
@@ -962,6 +974,7 @@ def build_html(briefing_md, market_html, today_str):
     <div class="footer">
       <p>Parcion Private Wealth &nbsp;·&nbsp; Internal Use Only &nbsp;·&nbsp;
          <a href="https://www.parcionpw.com">parcionpw.com</a></p>
+      <div class="disclaimer">This briefing is prepared for internal use by Parcion Private Wealth advisors only and should not be forwarded to clients, prospects, or any third party. Content is generated with the assistance of AI and aggregated from third-party sources. All data, statistics, and market information should be independently verified before use in client communications or advisory discussions. This material does not constitute investment advice.</div>
     </div>
 
   </div>
