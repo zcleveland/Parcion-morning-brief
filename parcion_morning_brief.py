@@ -136,8 +136,6 @@ FRED_SERIES = [
     ("Core PCE YoY",     "PCEPILFE",          pct,  "pc1",  "Fed target: 2.0%"),
     ("Unemployment",     "UNRATE",            pct,  "lin",  "Avg (2015-19): 4.4%"),
     ("GDP Growth",       "A191RL1Q225SBEA",   pct,  "lin",  "Long-run avg: ~2.5%"),
-    ("ISM Mfg PMI",      "NAPM",              idx,  "lin",  "Expansion > 50"),
-    ("ISM Svcs PMI",     "NMFBAI",            idx,  "lin",  "Expansion > 50"),
     ("UMich Sentiment",  "UMCSENT",           idx,  "lin",  "Avg (2015-19): 96.5"),
     ("Fed Funds Rate",   "FEDFUNDS",          rate, "lin",  "Pre-COVID avg: 1.4%"),
 ]
@@ -583,6 +581,10 @@ For each item:
 
 Only include if today's news produced 2-3 genuinely strong, timely angles. If the material isn't there, omit entirely. Do not force this section.
 
+Separate each conversation starter with a --- divider.
+
+---
+
 **[Topic — 4 words max]**
 
 **Angle:** [One natural sentence an advisor could say to open the conversation.]
@@ -592,6 +594,10 @@ Only include if today's news produced 2-3 genuinely strong, timely angles. If th
 **Who:** [Specific client type and situation.]
 
 **Where it goes:** [Named technique or next step: GRAT, IDGT, SLAT, DAF, installment sale, private credit allocation, etc.]
+
+---
+
+[Repeat for each additional starter, always separated by ---]
 
 ---
 {monday_section}
@@ -915,7 +921,27 @@ def build_html(briefing_md, market_html, today_str):
   hr {{
     border: none;
     border-top: 1px solid #e8e5dd;
-    margin: 24px 0;
+    margin: 20px 0;
+  }}
+
+  /* Section topic header — bold lead line gets clear visual separation */
+  p > strong:only-child {{
+    display: block;
+    margin-top: 28px;
+    margin-bottom: 2px;
+    padding-top: 18px;
+    border-top: 2px solid #B99A38;
+    font-size: 14px;
+    font-family: 'Century Gothic', Arial, sans-serif;
+    letter-spacing: 0.02em;
+  }}
+
+  /* First topic in a section should not get a top border */
+  h2 + p > strong:only-child,
+  h3 + p > strong:only-child {{
+    border-top: none;
+    margin-top: 8px;
+    padding-top: 0;
   }}
 
   blockquote {{
