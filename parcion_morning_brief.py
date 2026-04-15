@@ -704,10 +704,10 @@ def build_market_html(market_data, econ_data, fed_data):
   <div style="margin-bottom:28px;">
     <div style="font-family:'Century Gothic',Arial,sans-serif;font-size:10px;font-weight:700;letter-spacing:0.18em;text-transform:uppercase;color:#00141C;border-bottom:1px solid #B99A38;padding-bottom:6px;margin-bottom:16px;">Markets &amp; Economic Snapshot</div>
 
-    <!-- Outlook-safe two-column table layout -->
-    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="table-layout:fixed;">
+    <!-- Two-column market table — fixed pixel widths reflow naturally on mobile -->
+    <table width="100%" cellpadding="0" cellspacing="0" border="0">
       <tr>
-        <td width="49%" valign="top" style="padding-right:12px;">
+        <td width="420" valign="top" style="padding-right:16px;min-width:280px;">
           <div style="font-family:'Century Gothic',Arial,sans-serif;font-size:9px;font-weight:700;letter-spacing:0.16em;text-transform:uppercase;color:#B99A38;margin-bottom:8px;">Markets — YTD Change</div>
           <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
             <thead>
@@ -721,8 +721,8 @@ def build_market_html(market_data, econ_data, fed_data):
           </table>
           <div style="font-size:10px;color:#999;margin-top:6px;font-style:italic;font-family:'Century Gothic',Arial,sans-serif;">Source: Yahoo Finance. Prior close.</div>
         </td>
-        <td width="2%"></td>
-        <td width="49%" valign="top" style="padding-left:12px;">
+        <td width="16" class="mobile-spacer" style="min-width:0;"></td>
+        <td width="420" valign="top" style="padding-left:0;min-width:280px;">
           <div style="font-family:'Century Gothic',Arial,sans-serif;font-size:9px;font-weight:700;letter-spacing:0.16em;text-transform:uppercase;color:#B99A38;margin-bottom:8px;">Economic Readings — Latest</div>
           <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
             <thead>
@@ -953,6 +953,38 @@ def build_html(briefing_md, market_html, today_str):
     color: #B99A38;
     border-bottom: none;
     text-decoration: none;
+  }}
+
+  /* ── Mobile responsive ── */
+  @media only screen and (max-width: 620px) {{
+    body {{
+      padding: 0 !important;
+    }}
+
+    .wrapper {{
+      width: 100% !important;
+      max-width: 100% !important;
+    }}
+
+    .header {{
+      padding: 24px 20px 20px !important;
+    }}
+
+    .header-title {{
+      font-size: 24px !important;
+    }}
+
+    .content {{
+      padding: 20px 20px 28px !important;
+    }}
+
+    .footer {{
+      padding: 16px 20px 20px !important;
+    }}
+
+    h1, h2 {{
+      font-size: 12px !important;
+    }}
   }}
 </style>
 </head>
