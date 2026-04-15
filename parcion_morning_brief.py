@@ -137,7 +137,7 @@ FRED_SERIES = [
     ("Unemployment",     "UNRATE",            pct,  "lin",  "Avg (2015-19): 4.4%"),
     ("GDP Growth",       "A191RL1Q225SBEA",   pct,  "lin",  "Long-run avg: ~2.5%"),
     ("UMich Sentiment",  "UMCSENT",           idx,  "lin",  "Avg (2015-19): 96.5"),
-    ("Fed Funds Rate",   "FEDFUNDS",          rate, "lin",  "Pre-COVID avg: 1.4%"),
+    ("Fed Funds Rate",   "FEDFUNDS",          rate, "lin",  None),  # benchmark set dynamically
 ]
 
 
@@ -261,18 +261,49 @@ def fetch_fred_series(series_id, units="lin"):
         return None, None
 
 
+def fetch_fed_15yr_avg():
+    """Fetch 15-year average of Fed Funds Rate from FRED."""
+    try:
+        fifteen_yrs_ago = (datetime.now().replace(year=datetime.now().year - 15)).strftime("%Y-%m-%d")
+        url = "https://api.stlouisfed.org/fred/series/observations"
+        params = {
+            "series_id":        "FEDFUNDS",
+            "api_key":          FRED_API_KEY,
+            "file_type":        "json",
+            "observation_start": fifteen_yrs_ago,
+            "observation_end":  date.today().isoformat(),
+            "units":            "lin",
+        }
+        r   = requests.get(url, params=params, timeout=10)
+        obs = r.json()["observations"]
+        vals = [float(o["value"]) for o in obs if o["value"] not in (".", "")]
+        if vals:
+            avg = sum(vals) / len(vals)
+            return f"15yr avg: {avg:.1f}%"
+        return None
+    except Exception:
+        return None
+
+
 def fetch_economic_data():
     """Fetch all FRED economic indicators."""
     print("  → Fetching economic data (FRED)...")
+
+    # Get 15-year Fed Funds average for benchmark
+    fed_15yr = fetch_fed_15yr_avg()
+
     results = []
     for name, series_id, fmt, units, context in FRED_SERIES:
         val, as_of = fetch_fred_series(series_id, units=units)
         formatted  = fmt(val) if val is not None else "N/A"
+        # Override Fed Funds benchmark with dynamic 15yr average
+        if name == "Fed Funds Rate" and fed_15yr:
+            context = fed_15yr
         results.append({
             "name":    name,
             "value":   formatted,
             "as_of":   as_of or "N/A",
-            "context": context,
+            "context": context or "",
         })
         print(f"    {'✓' if val else '✗'} {name}: {formatted}")
     return results
@@ -283,84 +314,57 @@ def fetch_economic_data():
 
 def fetch_fed_expectations():
     """
-    Fetch Fed meeting probabilities from CME FedWatch JSON API.
-    Falls back to FRED-based estimate if unavailable.
+    Returns next FOMC meeting date and year-end implied Fed Funds rate
+    derived from 6-month T-bill (DTB6) as a year-end proxy.
+    No probability tiles — avoids the logic contradiction.
     """
-    print("  → Fetching Fed expectations...")
+    print("  → Fetching Fed expectations (FRED)...")
     try:
-        # CME publishes a JSON endpoint used by their FedWatch tool
-        url = "https://www.cmegroup.com/CmeWS/mvc/ProductCalendar/Future/FR"
-        headers = {**HEADERS, "Referer": "https://www.cmegroup.com/markets/interest-rates/cme-fedwatch-tool.html"}
-        r = requests.get(url, headers=headers, timeout=12)
-        data = r.json()
-
-        if not data:
-            raise ValueError("Empty response from CME")
-
-        # Get the nearest contract
-        contract = data[0] if isinstance(data, list) else data
-        implied_rate = float(contract.get("last", 0))
         curr_val, _ = fetch_fred_series("FEDFUNDS")
+        ye_tbill, _ = fetch_fred_series("DTB6")
+
         if curr_val is None:
-            raise ValueError("No current rate")
+            raise ValueError("No current Fed Funds rate")
 
-        implied_change_bps = round((implied_rate - curr_val) * 100)
+        # Next FOMC meeting
+        today = datetime.now()
+        fomc_2026 = [
+            datetime(2026, 1, 29), datetime(2026, 3, 19), datetime(2026, 4, 29),
+            datetime(2026, 5, 7),  datetime(2026, 6, 18), datetime(2026, 7, 30),
+            datetime(2026, 9, 17), datetime(2026, 10, 29), datetime(2026, 12, 10),
+        ]
+        next_meeting = next((d for d in fomc_2026 if d > today), None)
+        meeting_str  = next_meeting.strftime("%B %d, %Y") if next_meeting else "Next Meeting"
 
-    except Exception:
-        # Pure FRED fallback
-        try:
-            curr_val, _ = fetch_fred_series("FEDFUNDS")
-            # Use 3-month T-bill as proxy for near-term rate expectations
-            tbill_val, _ = fetch_fred_series("DTB3")
-            if curr_val and tbill_val:
-                implied_change_bps = round((tbill_val - curr_val) * 100)
+        # Year-end implied rate from 6M T-bill
+        if ye_tbill:
+            yr_end = f"{ye_tbill:.2f}%"
+            diff   = ye_tbill - curr_val
+            if diff <= -0.375:
+                direction = f"{abs(round(diff/0.25)):.0f} cuts implied"
+            elif diff >= 0.375:
+                direction = f"{round(diff/0.25):.0f} hikes implied"
+            elif abs(diff) < 0.125:
+                direction = "Hold implied"
+            elif diff < 0:
+                direction = "1 cut implied"
             else:
-                raise ValueError("No fallback data")
-        except Exception as e:
-            print(f"    ✗ Fed expectations failed: {e}")
-            return None
+                direction = "1 hike implied"
+        else:
+            yr_end    = f"{curr_val:.2f}%"
+            direction = "Hold implied"
 
-    # Build probability estimates from implied change
-    if implied_change_bps <= -37:
-        hold, cut25, cut50, hike25 = 5, 40, 55, 0
-    elif implied_change_bps <= -20:
-        hold, cut25, cut50, hike25 = 15, 70, 15, 0
-    elif implied_change_bps <= -8:
-        hold, cut25, cut50, hike25 = 30, 65, 5, 0
-    elif implied_change_bps <= 8:
-        hold, cut25, cut50, hike25 = 85, 12, 0, 3
-    elif implied_change_bps <= 20:
-        hold, cut25, cut50, hike25 = 30, 0, 0, 70
-    else:
-        hold, cut25, cut50, hike25 = 5, 0, 0, 95
+        return {
+            "meeting":   meeting_str,
+            "yr_end":    yr_end,
+            "direction": direction,
+            "curr_rate": f"{curr_val:.2f}%",
+            "source":    "FRED / 6M T-Bill",
+        }
 
-    # Next FOMC meeting
-    today = datetime.now()
-    fomc_2026 = [
-        datetime(2026, 1, 29), datetime(2026, 3, 19), datetime(2026, 5, 7),
-        datetime(2026, 6, 18), datetime(2026, 7, 30), datetime(2026, 9, 17),
-        datetime(2026, 10, 29), datetime(2026, 12, 10),
-    ]
-    next_meeting = next((d for d in fomc_2026 if d > today), None)
-    meeting_str  = next_meeting.strftime("%B %d, %Y") if next_meeting else "Next Meeting"
-
-    # Year-end implied rate
-    curr_val, _ = fetch_fred_series("FEDFUNDS")
-    ye_tbill, _ = fetch_fred_series("DTB6")  # 6-month T-bill as year-end proxy
-    yr_end = f"{ye_tbill:.2f}%" if ye_tbill else (f"{(curr_val + implied_change_bps/100):.2f}%" if curr_val else "N/A")
-    cuts_expected = max(0, round((curr_val - float(yr_end.replace('%',''))) / 0.25)) if curr_val and yr_end != "N/A" else 0
-    cuts_str = f"{cuts_expected} cut{'s' if cuts_expected != 1 else ''}" if cuts_expected > 0 else "no cuts"
-
-    return {
-        "meeting": meeting_str,
-        "hold":    hold,
-        "cut25":   cut25,
-        "cut50":   cut50,
-        "hike25":  hike25,
-        "yr_end":  yr_end,
-        "cuts":    cuts_str,
-        "source":  "Fed Funds Futures (implied)",
-    }
+    except Exception as e:
+        print(f"    ✗ Fed expectations failed: {e}")
+        return None
 
 
 # ─── News Helpers ──────────────────────────────────────────────────────────────
@@ -666,60 +670,30 @@ def build_market_html(market_data, econ_data, fed_data):
 
     # Fed expectations block
     if fed_data:
-        hold_pct  = fed_data.get("hold",  "—")
-        cut25_pct = fed_data.get("cut25", "—")
-        cut50_pct = fed_data.get("cut50", "—")
-        hike25    = fed_data.get("hike25","—")
-        yr_end    = fed_data.get("yr_end", "N/A")
-        cuts      = fed_data.get("cuts",  "N/A")
-        meeting   = fed_data.get("meeting","Next Meeting")
-        source    = fed_data.get("source", "CME FedWatch")
-
-        # Determine which tile to accent (highest probability)
-        probs = {}
-        for label, val in [("hold", hold_pct), ("cut25", cut25_pct), ("cut50", cut50_pct), ("hike25", hike25)]:
-            try:
-                probs[label] = float(str(val).replace("%",""))
-            except:
-                probs[label] = 0
-        top = max(probs, key=probs.get) if probs else None
-
-        def tile(label, display, val, color):
-            accent_border = f"border-top:3px solid {color};" if label == top else "border-top:3px solid #e8e5dd;"
-            txt_color = color if label == top else "#1a1a1a"
-            lbl_color = color if label == top else "#888"
-            bg = "#f4faf6" if label == top else "#f7f7f4"
-            return f"""
-            <td width="25%" style="padding:10px 6px;text-align:center;background:{bg};{accent_border}">
-              <div style="font-family:'Century Gothic',Arial,sans-serif;font-size:9px;letter-spacing:0.08em;text-transform:uppercase;color:{lbl_color};margin-bottom:4px;">{display}</div>
-              <div style="font-size:18px;font-weight:700;color:{txt_color};font-family:'Century Gothic',Arial,sans-serif;">{val if val != '—' else '—'}</div>
-            </td>"""
-
-        tiles = (
-            tile("hold",   "Hold",       f"{hold_pct}%"  if hold_pct  != '—' else '—', "#555555") +
-            tile("cut25",  "Cut 25bps",  f"{cut25_pct}%" if cut25_pct != '—' else '—', "#2a7a3b") +
-            tile("cut50",  "Cut 50bps",  f"{cut50_pct}%" if cut50_pct != '—' else '—', "#1E6685") +
-            tile("hike25", "Hike 25bps", f"{hike25}%"    if hike25    != '—' else '—', "#c0392b")
-        )
+        meeting   = fed_data.get("meeting",   "Next Meeting")
+        yr_end    = fed_data.get("yr_end",    "N/A")
+        direction = fed_data.get("direction", "")
+        curr_rate = fed_data.get("curr_rate", "N/A")
+        source    = fed_data.get("source",    "FRED")
 
         fed_block = f"""
       <div style="border-top:1px solid #e8e5dd;padding-top:14px;margin-top:12px;">
-        <div style="font-family:'Century Gothic',Arial,sans-serif;font-size:9px;font-weight:700;letter-spacing:0.16em;text-transform:uppercase;color:#B99A38;margin-bottom:8px;">Fed Expectations — {source}</div>
-        <div style="font-family:'Century Gothic',Arial,sans-serif;font-size:10px;color:#555;margin-bottom:10px;">Next Meeting: <strong style="color:#00141C;">{meeting}</strong></div>
-        <table width="100%" cellpadding="0" cellspacing="4" border="0">
-          <tr>{tiles}</tr>
-        </table>
-        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:10px;background:#00141C;">
-          <tr>
-            <td style="padding:10px 14px;font-family:'Century Gothic',Arial,sans-serif;font-size:10px;color:#7a9aa8;letter-spacing:0.06em;">Year-End Implied Rate</td>
-            <td style="padding:10px 14px;text-align:right;">
-              <span style="font-family:'Century Gothic',Arial,sans-serif;font-size:16px;font-weight:700;color:#f0ece2;">{yr_end}</span>
-              &nbsp;&nbsp;
-              <span style="font-family:'Century Gothic',Arial,sans-serif;font-size:10px;color:#B99A38;letter-spacing:0.06em;">{cuts} priced in</span>
-            </td>
+        <div style="font-family:'Century Gothic',Arial,sans-serif;font-size:9px;font-weight:700;letter-spacing:0.16em;text-transform:uppercase;color:#B99A38;margin-bottom:10px;">Fed Policy Outlook</div>
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
+          <tr style="background:#f7f7f4;">
+            <td style="padding:8px 10px;font-family:'Century Gothic',Arial,sans-serif;font-size:10px;color:#555;">Next Meeting</td>
+            <td style="padding:8px 10px;text-align:right;font-family:'Century Gothic',Arial,sans-serif;font-size:11px;font-weight:700;color:#00141C;">{meeting}</td>
+          </tr>
+          <tr style="background:#ffffff;">
+            <td style="padding:8px 10px;font-family:'Century Gothic',Arial,sans-serif;font-size:10px;color:#555;">Current Rate</td>
+            <td style="padding:8px 10px;text-align:right;font-family:'Century Gothic',Arial,sans-serif;font-size:11px;font-weight:700;color:#00141C;">{curr_rate}</td>
+          </tr>
+          <tr style="background:#f7f7f4;">
+            <td style="padding:8px 10px;font-family:'Century Gothic',Arial,sans-serif;font-size:10px;color:#555;">Year-End Implied (6M T-Bill)</td>
+            <td style="padding:8px 10px;text-align:right;font-family:'Century Gothic',Arial,sans-serif;font-size:11px;font-weight:700;color:#00141C;">{yr_end} &nbsp;<span style="font-size:10px;color:#B99A38;font-weight:400;">{direction}</span></td>
           </tr>
         </table>
-        <div style="font-size:10px;color:#999;margin-top:6px;font-style:italic;font-family:'Century Gothic',Arial,sans-serif;">Source: {source}. Based on Fed Funds futures as of prior close.</div>
+        <div style="font-size:10px;color:#999;margin-top:6px;font-style:italic;font-family:'Century Gothic',Arial,sans-serif;">Source: {source}. Year-end rate implied by 6-month Treasury bill yield.</div>
       </div>"""
     else:
         fed_block = ""
