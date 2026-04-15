@@ -1,46 +1,47 @@
 name: Parcion Morning Brief
 
 on:
-  # PDT (Mar–Nov): UTC-7 → 6am Pacific = 13:00 UTC
-  # PST (Nov–Mar): UTC-8 → 6am Pacific = 14:00 UTC
-  # Both crons run daily; the script checks the local hour and exits if wrong.
   schedule:
-    - cron: '0 13 * * 1-5'   # 6am PDT (summer)
-    - cron: '0 14 * * 1-5'   # 6am PST (winter)
-  workflow_dispatch:           # manual trigger for testing
+    - cron: '0 13 * * 1-5'   # 6am PDT (Mar–Nov)
+    - cron: '0 14 * * 1-5'   # 6am PST (Nov–Mar)
+  workflow_dispatch:
 
 jobs:
   send-brief:
     runs-on: ubuntu-latest
-    env:
-      TZ: America/Los_Angeles
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Confirm 6am Pacific
+        id: time_check
+        run: |
+          HOUR=$(TZ=America/Los_Angeles date +%-H)
+          echo "Pacific hour: $HOUR"
+          if [ "$HOUR" != "6" ]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Set up Python
+        if: steps.time_check.outputs.skip == 'false'
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
       - name: Install dependencies
+        if: steps.time_check.outputs.skip == 'false'
         run: |
-          pip install feedparser anthropic markdown
+          pip install feedparser anthropic markdown requests beautifulsoup4
 
-      - name: Confirm local hour is 6am Pacific
-        run: |
-          HOUR=$(TZ=America/Los_Angeles date +%-H)
-          echo "Current Pacific hour: $HOUR"
-          if [ "$HOUR" != "6" ]; then
-            echo "Not 6am Pacific — skipping. (Hour is $HOUR)"
-            exit 0
-          fi
-
-      - name: Run daily briefing
+      - name: Run morning brief
+        if: steps.time_check.outputs.skip == 'false'
         env:
           GMAIL_ADDRESS:      ${{ secrets.GMAIL_ADDRESS }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           WORK_EMAIL:         ${{ secrets.WORK_EMAIL }}
           ANTHROPIC_API_KEY:  ${{ secrets.ANTHROPIC_API_KEY }}
+          FRED_API_KEY:       ${{ secrets.FRED_API_KEY }}
         run: python parcion_morning_brief.py
