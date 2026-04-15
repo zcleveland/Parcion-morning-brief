@@ -39,7 +39,7 @@ jobs:
       - name: Install dependencies
         if: steps.time_check.outputs.skip == 'false'
         run: |
-          pip install feedparser anthropic markdown requests beautifulsoup4
+          pip install feedparser anthropic markdown requests
 
       - name: Run morning brief
         if: steps.time_check.outputs.skip == 'false'
