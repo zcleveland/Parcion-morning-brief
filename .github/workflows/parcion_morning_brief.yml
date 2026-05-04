@@ -1,14 +1,9 @@
 name: Parcion Morning Brief
 
 on:
-  # Runs at 6am Pacific every weekday.
-  # PDT (Mar–Nov): UTC-7 → 13:00 UTC
-  # PST (Nov–Mar): UTC-8 → 14:00 UTC
-  # Both crons run; the time check step skips the wrong one.
   schedule:
-    - cron: '0 13 * * 1-5'
-    - cron: '0 14 * * 1-5'
-  workflow_dispatch:   # always runs when triggered manually
+    - cron: '0 13 * * 1-5'   # 6am PDT (Mar–Nov). Switch to '0 14 * * 1-5' in November for PST.
+  workflow_dispatch:           # manual trigger for testing
 
 jobs:
   send-brief:
@@ -18,36 +13,15 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Check if correct hour (skip for manual runs)
-        id: gate
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "Manual trigger — running now"
-            echo "run=true" >> $GITHUB_OUTPUT
-          else
-            HOUR=$(TZ=America/Los_Angeles date +%-H)
-            echo "Current Pacific hour: $HOUR"
-            if [ "$HOUR" = "6" ]; then
-              echo "Scheduled trigger at correct hour — running"
-              echo "run=true" >> $GITHUB_OUTPUT
-            else
-              echo "Wrong hour ($HOUR) — skipping"
-              echo "run=false" >> $GITHUB_OUTPUT
-            fi
-          fi
-
       - name: Set up Python
-        if: steps.gate.outputs.run == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
       - name: Install dependencies
-        if: steps.gate.outputs.run == 'true'
         run: pip install feedparser anthropic markdown requests
 
       - name: Run morning brief
-        if: steps.gate.outputs.run == 'true'
         env:
           GMAIL_ADDRESS:      ${{ secrets.GMAIL_ADDRESS }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
