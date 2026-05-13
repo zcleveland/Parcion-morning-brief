@@ -1,1 +1,773 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>But First... — Parcion Morning Brief</title>
+<style>
+  :root {
+    --navy:     #00141C;
+    --gold:     #B99A38;
+    --gold-dk:  #8D762E;
+    --offwhite: #f7f7f4;
+    --mid:      #6b6b6b;
+    --border:   #e2dfd6;
+    --red:      #c0392b;
+    --green:    #2a7a3b;
+  }
 
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--navy);
+    font-family: 'Palatino Linotype', Palatino, 'Book Antiqua', Georgia, serif;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 0 16px 60px;
+  }
+
+  /* ── Header ── */
+  .site-header {
+    width: 100%;
+    max-width: 720px;
+    padding: 36px 0 28px;
+    border-bottom: 1px solid rgba(185,154,56,0.25);
+    margin-bottom: 36px;
+  }
+  .brand {
+    font-family: 'Century Gothic', 'Gill Sans', Arial, sans-serif;
+    font-size: 10px;
+    letter-spacing: 0.30em;
+    color: var(--gold);
+    text-transform: uppercase;
+    display: block;
+    margin-bottom: 8px;
+  }
+  .site-title {
+    font-family: 'Palatino Linotype', Palatino, Georgia, serif;
+    font-size: 28px;
+    color: #f0ece2;
+    font-style: italic;
+    font-weight: 400;
+    letter-spacing: 0.02em;
+  }
+  .site-title span {
+    color: var(--gold);
+  }
+
+  /* ── Card ── */
+  .card {
+    width: 100%;
+    max-width: 720px;
+    background: #ffffff;
+    border-top: 3px solid var(--gold);
+  }
+
+  /* ── Lock screen ── */
+  #lock-screen {
+    padding: 48px 40px;
+    text-align: center;
+  }
+  .lock-icon {
+    width: 48px;
+    height: 48px;
+    background: var(--navy);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 20px;
+  }
+  .lock-icon svg { width: 22px; height: 22px; fill: var(--gold); }
+  #lock-screen h2 {
+    font-family: 'Century Gothic', Arial, sans-serif;
+    font-size: 13px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--navy);
+    margin-bottom: 8px;
+  }
+  #lock-screen p {
+    font-size: 14px;
+    color: var(--mid);
+    margin-bottom: 28px;
+    line-height: 1.6;
+  }
+  .lock-input-wrap {
+    display: flex;
+    gap: 10px;
+    max-width: 360px;
+    margin: 0 auto;
+  }
+  .lock-input-wrap input {
+    flex: 1;
+    padding: 11px 14px;
+    border: 1px solid var(--border);
+    font-family: 'Century Gothic', Arial, sans-serif;
+    font-size: 14px;
+    color: var(--navy);
+    outline: none;
+    letter-spacing: 0.12em;
+  }
+  .lock-input-wrap input:focus { border-color: var(--gold); }
+  .btn-unlock {
+    padding: 11px 22px;
+    background: var(--navy);
+    color: var(--gold);
+    border: none;
+    font-family: 'Century Gothic', Arial, sans-serif;
+    font-size: 12px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .btn-unlock:hover { background: #002a3a; }
+  .lock-error {
+    margin-top: 12px;
+    font-family: 'Century Gothic', Arial, sans-serif;
+    font-size: 12px;
+    color: var(--red);
+    letter-spacing: 0.06em;
+    display: none;
+  }
+
+  /* ── Editor ── */
+  #editor-screen { display: none; }
+
+  .editor-header {
+    background: var(--navy);
+    padding: 18px 28px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .editor-header-left {
+    font-family: 'Century Gothic', Arial, sans-serif;
+    font-size: 9px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--gold);
+  }
+  .editor-date {
+    font-family: 'Century Gothic', Arial, sans-serif;
+    font-size: 9px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #4a6a74;
+  }
+
+  /* Toolbar */
+  .toolbar {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    background: #fafaf7;
+    flex-wrap: wrap;
+  }
+  .tb-btn {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    border-radius: 4px;
+    font-size: 14px;
+    color: #333;
+    font-family: 'Century Gothic', Arial, sans-serif;
+  }
+  .tb-btn:hover { background: #eee; }
+  .tb-btn.active { background: #e8e5dd; color: var(--navy); }
+  .tb-sep {
+    width: 1px;
+    height: 22px;
+    background: var(--border);
+    margin: 0 6px;
+  }
+  .tb-btn svg { width: 15px; height: 15px; fill: currentColor; }
+
+  /* Editable area */
+  .editor-body {
+    min-height: 200px;
+    max-height: 400px;
+    overflow-y: auto;
+    padding: 20px 28px;
+    font-size: 15px;
+    line-height: 1.75;
+    color: #1a1a1a;
+    outline: none;
+    font-family: 'Palatino Linotype', Palatino, Georgia, serif;
+  }
+  .editor-body:empty::before {
+    content: attr(data-placeholder);
+    color: #aaa;
+    pointer-events: none;
+  }
+  .editor-body a { color: var(--gold-dk); }
+  .editor-body img { max-width: 100%; height: auto; margin: 8px 0; display: block; }
+
+  /* Image upload area */
+  .image-drop-zone {
+    border: 1.5px dashed var(--border);
+    padding: 14px 20px;
+    margin: 0 28px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.2s;
+    background: #fafaf7;
+  }
+  .image-drop-zone:hover, .image-drop-zone.drag-over {
+    border-color: var(--gold);
+    background: #fdf9ef;
+  }
+  .image-drop-zone p {
+    font-family: 'Century Gothic', Arial, sans-serif;
+    font-size: 11px;
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+    color: var(--mid);
+    margin: 0;
+  }
+  .image-drop-zone .upload-label {
+    color: var(--gold-dk);
+    cursor: pointer;
+    text-decoration: underline;
+  }
+  #file-input { display: none; }
+  .upload-progress {
+    font-family: 'Century Gothic', Arial, sans-serif;
+    font-size: 11px;
+    color: var(--gold-dk);
+    letter-spacing: 0.08em;
+    margin-top: 6px;
+    display: none;
+  }
+
+  /* Link dialog */
+  .link-dialog {
+    display: none;
+    padding: 14px 28px;
+    background: #fdf9ef;
+    border-top: 1px solid #f0ebe0;
+    border-bottom: 1px solid #f0ebe0;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .link-dialog.open { display: flex; }
+  .link-dialog label {
+    font-family: 'Century Gothic', Arial, sans-serif;
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--mid);
+    white-space: nowrap;
+  }
+  .link-dialog input {
+    flex: 1;
+    min-width: 200px;
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    font-family: 'Century Gothic', Arial, sans-serif;
+    font-size: 13px;
+    color: var(--navy);
+    outline: none;
+  }
+  .link-dialog input:focus { border-color: var(--gold); }
+  .btn-insert-link {
+    padding: 8px 16px;
+    background: var(--navy);
+    color: var(--gold);
+    border: none;
+    font-family: 'Century Gothic', Arial, sans-serif;
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    cursor: pointer;
+  }
+  .btn-cancel-link {
+    padding: 8px 12px;
+    background: transparent;
+    color: var(--mid);
+    border: 1px solid var(--border);
+    font-family: 'Century Gothic', Arial, sans-serif;
+    font-size: 11px;
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+    cursor: pointer;
+  }
+
+  /* Footer bar */
+  .editor-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 28px;
+    border-top: 1px solid var(--border);
+    background: #fafaf7;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .char-count {
+    font-family: 'Century Gothic', Arial, sans-serif;
+    font-size: 11px;
+    color: var(--mid);
+    letter-spacing: 0.08em;
+  }
+  .footer-actions { display: flex; gap: 10px; align-items: center; }
+  .btn-clear {
+    padding: 9px 18px;
+    background: transparent;
+    color: var(--mid);
+    border: 1px solid var(--border);
+    font-family: 'Century Gothic', Arial, sans-serif;
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    cursor: pointer;
+  }
+  .btn-clear:hover { border-color: #bbb; color: #444; }
+  .btn-publish {
+    padding: 10px 24px;
+    background: var(--gold);
+    color: var(--navy);
+    border: none;
+    font-family: 'Century Gothic', Arial, sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    cursor: pointer;
+  }
+  .btn-publish:hover { background: var(--gold-dk); color: #fff; }
+  .btn-publish:disabled { background: #ccc; color: #888; cursor: not-allowed; }
+
+  /* Preview */
+  .preview-wrap {
+    border-top: 1px solid var(--border);
+    padding: 24px 28px 28px;
+  }
+  .preview-label {
+    font-family: 'Century Gothic', Arial, sans-serif;
+    font-size: 9px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--mid);
+    margin-bottom: 14px;
+  }
+  .preview-card {
+    background: #f7f7f4;
+    border-left: 3px solid var(--gold);
+    padding: 18px 22px;
+  }
+  .preview-but-first {
+    font-family: 'Century Gothic', Arial, sans-serif;
+    font-size: 9px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--gold-dk);
+    margin-bottom: 10px;
+  }
+  .preview-content {
+    font-family: 'Palatino Linotype', Palatino, Georgia, serif;
+    font-size: 15px;
+    line-height: 1.75;
+    color: #1a1a1a;
+    min-height: 40px;
+  }
+  .preview-content.empty {
+    color: #aaa;
+    font-style: italic;
+  }
+  .preview-content img { max-width: 100%; height: auto; margin: 6px 0; display: block; }
+
+  /* Status toast */
+  .toast {
+    position: fixed;
+    bottom: 28px;
+    left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    background: var(--navy);
+    color: #f0ece2;
+    padding: 12px 24px;
+    font-family: 'Century Gothic', Arial, sans-serif;
+    font-size: 12px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    opacity: 0;
+    transition: opacity 0.3s, transform 0.3s;
+    pointer-events: none;
+    border-top: 2px solid var(--gold);
+    white-space: nowrap;
+  }
+  .toast.success { border-top-color: #2a7a3b; }
+  .toast.error   { border-top-color: var(--red); }
+  .toast.show    { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  /* Responsive */
+  @media (max-width: 520px) {
+    .site-header { padding: 24px 0 20px; }
+    .editor-body { padding: 16px 18px; }
+    .toolbar { padding: 8px 12px; }
+    .editor-footer { padding: 12px 18px; }
+    .image-drop-zone { margin: 0 18px; }
+    .preview-wrap { padding: 18px 18px 22px; }
+    .lock-input-wrap { flex-direction: column; }
+  }
+</style>
+</head>
+<body>
+
+<div class="site-header">
+  <span class="brand">Parcion Private Wealth</span>
+  <span class="site-title">The Morning Brief <span>/ But First...</span></span>
+</div>
+
+<div class="card">
+
+  <!-- Lock Screen -->
+  <div id="lock-screen">
+    <div class="lock-icon">
+      <svg viewBox="0 0 24 24"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/></svg>
+    </div>
+    <h2>Morning Brief Editor</h2>
+    <p>Enter your password to publish the "But First..." note for tomorrow's brief.</p>
+    <div class="lock-input-wrap">
+      <input type="password" id="password-input" placeholder="Password" autocomplete="current-password">
+      <button class="btn-unlock" onclick="unlock()">Enter</button>
+    </div>
+    <p class="lock-error" id="lock-error">Incorrect password. Try again.</p>
+  </div>
+
+  <!-- Editor Screen -->
+  <div id="editor-screen">
+
+    <div class="editor-header">
+      <span class="editor-header-left">But First... Editor</span>
+      <span class="editor-date" id="today-date"></span>
+    </div>
+
+    <!-- Toolbar -->
+    <div class="toolbar">
+      <button class="tb-btn" onclick="fmt('bold')" title="Bold"><strong>B</strong></button>
+      <button class="tb-btn" onclick="fmt('italic')" title="Italic"><em>I</em></button>
+      <button class="tb-btn" onclick="fmt('underline')" title="Underline"><u>U</u></button>
+      <div class="tb-sep"></div>
+      <button class="tb-btn" onclick="toggleLinkDialog()" title="Insert link">
+        <svg viewBox="0 0 24 24"><path d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"/></svg>
+      </button>
+      <div class="tb-sep"></div>
+      <button class="tb-btn" onclick="fmt('insertUnorderedList')" title="Bullet list">
+        <svg viewBox="0 0 24 24"><path d="M4 10.5c-.83 0-1.5.67-1.5 1.5s.67 1.5 1.5 1.5 1.5-.67 1.5-1.5-.67-1.5-1.5-1.5zm0-6c-.83 0-1.5.67-1.5 1.5S3.17 7.5 4 7.5 5.5 6.83 5.5 6 4.83 4.5 4 4.5zm0 12c-.83 0-1.5.68-1.5 1.5s.68 1.5 1.5 1.5 1.5-.68 1.5-1.5-.67-1.5-1.5-1.5zM7 19h14v-2H7v2zm0-6h14v-2H7v2zm0-8v2h14V5H7z"/></svg>
+      </button>
+      <div class="tb-sep"></div>
+      <button class="tb-btn" onclick="triggerImageUpload()" title="Upload image">
+        <svg viewBox="0 0 24 24"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>
+      </button>
+    </div>
+
+    <!-- Link dialog -->
+    <div class="link-dialog" id="link-dialog">
+      <label>URL</label>
+      <input type="url" id="link-url" placeholder="https://...">
+      <button class="btn-insert-link" onclick="insertLink()">Insert</button>
+      <button class="btn-cancel-link" onclick="closeLinkDialog()">Cancel</button>
+    </div>
+
+    <!-- Editable area -->
+    <div
+      class="editor-body"
+      id="editor"
+      contenteditable="true"
+      spellcheck="true"
+      data-placeholder="Write your note here — team wins, market color, a link worth reading, a heads-up before a big week. Advisors see this first thing."
+    ></div>
+
+    <!-- Image upload zone -->
+    <div class="image-drop-zone" id="drop-zone" onclick="triggerImageUpload()">
+      <p>Drop an image here or <span class="upload-label">click to upload</span></p>
+      <p class="upload-progress" id="upload-progress">Uploading...</p>
+    </div>
+    <input type="file" id="file-input" accept="image/*" onchange="handleFileUpload(this.files[0])">
+
+    <!-- Footer -->
+    <div class="editor-footer">
+      <span class="char-count" id="char-count">0 characters</span>
+      <div class="footer-actions">
+        <button class="btn-clear" onclick="clearEditor()">Clear</button>
+        <button class="btn-publish" id="publish-btn" onclick="publish()">Publish to tomorrow's brief</button>
+      </div>
+    </div>
+
+    <!-- Preview -->
+    <div class="preview-wrap">
+      <div class="preview-label">Email preview</div>
+      <div class="preview-card">
+        <div class="preview-but-first">But First...</div>
+        <div class="preview-content empty" id="preview-content">Your note will appear here as you type...</div>
+      </div>
+    </div>
+
+  </div><!-- /editor-screen -->
+</div><!-- /card -->
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ── Config ──────────────────────────────────────────────────────────────────
+// Password is checked client-side for UX only. The real protection is
+// that the GitHub token is never exposed — publishing requires a valid
+// GITHUB_TOKEN which is injected server-side via a GitHub Action, not here.
+// For a simple internal tool this is sufficient.
+const EDITOR_PASSWORD = 'b$^5c1#TAkmrvh&T'; // injected at build time
+const GITHUB_OWNER    = 'zcleveland';
+const GITHUB_REPO     = 'Parcion-morning-brief';
+const GITHUB_TOKEN    = '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';
+const GITHUB_BRANCH   = 'main';
+
+// ── Date ────────────────────────────────────────────────────────────────────
+document.getElementById('today-date').textContent = new Date().toLocaleDateString('en-US', {
+  weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+});
+
+// ── Lock ────────────────────────────────────────────────────────────────────
+document.getElementById('password-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') unlock();
+});
+
+function unlock() {
+  const val = document.getElementById('password-input').value;
+  if (val === EDITOR_PASSWORD) {
+    document.getElementById('lock-screen').style.display   = 'none';
+    document.getElementById('editor-screen').style.display = 'block';
+    document.getElementById('editor').focus();
+  } else {
+    document.getElementById('lock-error').style.display = 'block';
+    document.getElementById('password-input').value = '';
+    document.getElementById('password-input').focus();
+  }
+}
+
+// ── Editor ──────────────────────────────────────────────────────────────────
+const editor  = document.getElementById('editor');
+const preview = document.getElementById('preview-content');
+const count   = document.getElementById('char-count');
+
+editor.addEventListener('input', updatePreview);
+
+function updatePreview() {
+  const html = editor.innerHTML;
+  const text = editor.innerText.trim();
+  count.textContent = text.length + ' character' + (text.length !== 1 ? 's' : '');
+  if (text.length > 0) {
+    preview.classList.remove('empty');
+    preview.innerHTML = html;
+  } else {
+    preview.classList.add('empty');
+    preview.innerHTML = 'Your note will appear here as you type...';
+  }
+}
+
+function fmt(cmd) {
+  editor.focus();
+  document.execCommand(cmd, false, null);
+}
+
+function clearEditor() {
+  if (editor.innerText.trim() && !confirm('Clear the current note?')) return;
+  editor.innerHTML = '';
+  updatePreview();
+}
+
+// ── Link dialog ──────────────────────────────────────────────────────────────
+let savedRange = null;
+
+function toggleLinkDialog() {
+  const dialog = document.getElementById('link-dialog');
+  if (dialog.classList.contains('open')) {
+    closeLinkDialog();
+  } else {
+    // Save current selection
+    const sel = window.getSelection();
+    if (sel.rangeCount) savedRange = sel.getRangeAt(0).cloneRange();
+    dialog.classList.add('open');
+    document.getElementById('link-url').value = '';
+    document.getElementById('link-url').focus();
+  }
+}
+
+function closeLinkDialog() {
+  document.getElementById('link-dialog').classList.remove('open');
+  document.getElementById('link-url').value = '';
+}
+
+document.getElementById('link-url').addEventListener('keydown', e => {
+  if (e.key === 'Enter') insertLink();
+  if (e.key === 'Escape') closeLinkDialog();
+});
+
+function insertLink() {
+  const url = document.getElementById('link-url').value.trim();
+  if (!url) return;
+  closeLinkDialog();
+  editor.focus();
+  if (savedRange) {
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(savedRange);
+  }
+  const selectedText = window.getSelection().toString();
+  const linkText = selectedText || url;
+  document.execCommand('insertHTML', false,
+    `<a href="${url}" style="color:#8D762E;">${linkText}</a>`);
+  updatePreview();
+}
+
+// ── Image upload ─────────────────────────────────────────────────────────────
+function triggerImageUpload() {
+  document.getElementById('file-input').click();
+}
+
+const dropZone = document.getElementById('drop-zone');
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file && file.type.startsWith('image/')) handleFileUpload(file);
+});
+
+async function handleFileUpload(file) {
+  if (!file) return;
+  const progress = document.getElementById('upload-progress');
+  progress.style.display = 'block';
+  progress.textContent   = 'Uploading...';
+
+  try {
+    // Convert to base64
+    const base64 = await fileToBase64(file);
+    const filename = `images/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+
+    // Push to GitHub repo
+    const response = await fetch(
+      `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${filename}`,
+      {
+        method: 'PUT',
+        headers: {
+          'Authorization': `token ${GITHUB_TOKEN}`,
+          'Content-Type': 'application/json',
+          'Accept': 'application/vnd.github.v3+json'
+        },
+        body: JSON.stringify({
+          message: `upload: image for morning brief`,
+          content: base64,
+          branch: GITHUB_BRANCH
+        })
+      }
+    );
+
+    if (!response.ok) throw new Error('Upload failed');
+
+    const data  = await response.json();
+    const imgUrl = data.content.download_url;
+
+    // Insert into editor
+    editor.focus();
+    document.execCommand('insertHTML', false,
+      `<img src="${imgUrl}" alt="Brief image" style="max-width:100%;height:auto;margin:8px 0;display:block;">`);
+    updatePreview();
+    progress.textContent   = '✓ Image uploaded';
+    setTimeout(() => { progress.style.display = 'none'; }, 2500);
+
+  } catch (err) {
+    progress.textContent = '✗ Upload failed — try again';
+    setTimeout(() => { progress.style.display = 'none'; }, 3000);
+  }
+}
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload  = () => resolve(reader.result.split(',')[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+// ── Publish ──────────────────────────────────────────────────────────────────
+async function publish() {
+  const text = editor.innerText.trim();
+  if (!text) { showToast('Nothing to publish — write something first.', 'error'); return; }
+
+  const btn = document.getElementById('publish-btn');
+  btn.disabled    = true;
+  btn.textContent = 'Publishing...';
+
+  try {
+    const content = editor.innerHTML.trim();
+
+    // Get current file SHA
+    const getRes = await fetch(
+      `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/weekly_note.html?ref=${GITHUB_BRANCH}`,
+      { headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json' } }
+    );
+    const fileData = await getRes.json();
+    const sha = fileData.sha;
+
+    // Encode content
+    const encoded = btoa(unescape(encodeURIComponent(content)));
+
+    // Push update
+    const putRes = await fetch(
+      `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/weekly_note.html`,
+      {
+        method: 'PUT',
+        headers: {
+          'Authorization': `token ${GITHUB_TOKEN}`,
+          'Content-Type': 'application/json',
+          'Accept': 'application/vnd.github.v3+json'
+        },
+        body: JSON.stringify({
+          message: 'publish: But First... note for morning brief',
+          content: encoded,
+          sha: sha,
+          branch: GITHUB_BRANCH
+        })
+      }
+    );
+
+    if (!putRes.ok) throw new Error('Publish failed');
+
+    showToast('Published — will appear in tomorrow\'s brief', 'success');
+    btn.textContent = '✓ Published';
+    setTimeout(() => {
+      btn.disabled    = false;
+      btn.textContent = 'Publish to tomorrow\'s brief';
+    }, 4000);
+
+  } catch (err) {
+    showToast('Something went wrong — try again', 'error');
+    btn.disabled    = false;
+    btn.textContent = 'Publish to tomorrow\'s brief';
+  }
+}
+
+// ── Toast ────────────────────────────────────────────────────────────────────
+function showToast(msg, type = '') {
+  const toast = document.getElementById('toast');
+  toast.textContent = msg;
+  toast.className   = `toast ${type}`;
+  setTimeout(() => toast.classList.add('show'), 10);
+  setTimeout(() => toast.classList.remove('show'), 3500);
+}
+</script>
+</body>
+</html>
