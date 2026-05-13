@@ -561,11 +561,6 @@ One quote. Attributed to a real person, a literary source, or anonymous. Can be 
 
 ---
 
-## The Numbers
-
-Do NOT generate this section. It is injected automatically from live market data.
-
----
 {week_ahead_section}
 
 ## Markets & Macro
