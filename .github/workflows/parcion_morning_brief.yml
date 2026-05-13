@@ -1,34 +1,37 @@
-name: Build Editor Page
+name: Parcion Morning Brief
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'docs/index.html'
-  workflow_dispatch:
+  schedule:
+    - cron: '0 13 * * 1-5'   # 6am PDT (Mar–Nov). Switch to '0 14 * * 1-5' in November for PST.
+  workflow_dispatch:           # manual trigger for testing — works on any branch
 
 jobs:
-  build-editor:
+  send-brief:
     runs-on: ubuntu-latest
+
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Inject secrets into editor page
-        env:
-          EDITOR_PASSWORD: ${{ secrets.EDITOR_PASSWORD }}
-          GITHUB_TOKEN_VAL: ${{ secrets.EDITOR_GITHUB_TOKEN }}
-          REPO_OWNER: ${{ github.repository_owner }}
-          REPO_NAME: ${{ github.event.repository.name }}
-        run: |
-          sed -i "s|%%EDITOR_PASSWORD%%|${EDITOR_PASSWORD}|g" docs/index.html
-          sed -i "s|%%GITHUB_OWNER%%|${REPO_OWNER}|g" docs/index.html
-          sed -i "s|%%GITHUB_REPO%%|${REPO_NAME}|g" docs/index.html
-          sed -i "s|%%GITHUB_TOKEN%%|${GITHUB_TOKEN_VAL}|g" docs/index.html
-
-      - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v3
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./docs
-          publish_branch: gh-pages
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install feedparser anthropic markdown requests google-auth google-auth-httplib2 google-api-python-client
+
+      - name: Run morning brief
+        env:
+          GMAIL_ADDRESS:                ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD:           ${{ secrets.GMAIL_APP_PASSWORD }}
+          WORK_EMAIL:                   ${{ secrets.WORK_EMAIL }}
+          ANTHROPIC_API_KEY:            ${{ secrets.ANTHROPIC_API_KEY }}
+          FRED_API_KEY:                 ${{ secrets.FRED_API_KEY }}
+          GOOGLE_SHEET_ID:              ${{ secrets.GOOGLE_SHEET_ID }}
+          GOOGLE_SERVICE_ACCOUNT_JSON:  ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          APPS_SCRIPT_URL:              ${{ secrets.APPS_SCRIPT_URL }}
+          GITHUB_TOKEN:                 ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY:            ${{ github.repository }}
+          BRANCH_NAME:                  ${{ github.ref_name }}
+        run: python parcion_morning_brief.py
